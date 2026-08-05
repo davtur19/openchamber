@@ -20,7 +20,8 @@ the web server and survives UI disconnects.
   tokensCommitted,         // closed segments' total (one segment per compaction)
   turnsUsed,               // auto-continuations sent (capped at MAX_AUTO_TURNS)
   blockedStreak,           // consecutive blocked audit verdicts
-  auditFailStreak,         // consecutive failed/unavailable audit calls
+  auditFailStreak,         // consecutive failed/unavailable audit calls (permanent failures only)
+  turnErrorStreak,         // consecutive transient turn errors retried (5xx/429/timeout/upstream)
   note,                    // latest audit progress note, <= 280 chars
   statusReason,            // why settled; 'resumed' is a kickoff signal from UI
   evaluationProviderID,    // provider used by the latest successful audit
@@ -108,8 +109,12 @@ before touching the filesystem). Rationale: metadata rides every
      stop), with a tick-side safety net. Messages sent while paused leave
      the goal alone; Resume re-arms the loop, and resuming over an aborted
      tail skips the audit and goes straight to a continuation nudge;
-   - terminal checks, cheapest first: assistant turn error → `blocked`;
-     `tokensUsed >= tokenBudget` → `budgetLimited`;
+   - terminal checks, cheapest first: assistant turn error → transient
+     provider failures (5xx/429/timeout/upstream message phrases) are retried
+     across ticks instead of settling — the streak is persisted in
+     `turnErrorStreak` and only `TURN_ERROR_RETRY_LIMIT` (5) consecutive ones
+     block the goal; permanent errors (auth, not found, content policy, shape)
+     block immediately; `tokensUsed >= tokenBudget` → `budgetLimited`;
      `turnsUsed >= MAX_AUTO_TURNS` (20) → `blocked`;
    - if the latest message is a compaction summary, skip the audit and
      continue unconditionally — running into the context window mid-work is
@@ -121,13 +126,15 @@ before touching the filesystem). Rationale: metadata rides every
      JSON `{verdict: continue|complete|blocked, note}`. The audit is the SOLE
      termination authority besides the hard stops above — the working agent
      has no channel to settle its own goal. `complete` settles; `blocked`
-     increments `blockedStreak` and settles only after 3 consecutive blocked
-     verdicts, so a one-off snag cannot end the goal. Audit failure/absence
-     tolerates ONE consecutive unaudited continuation (`auditFailStreak`); a
-     second consecutive failure settles the goal as `blocked` ("progress
-     audit unavailable") — resumable, and settling resets the streak so
-     Resume gets fresh tolerance. A dead small model can never drive the
-     loop blind to the turn cap;
+      increments `blockedStreak` and settles only after 3 consecutive blocked
+      verdicts, so a one-off snag cannot end the goal. Audit failure/absence
+      tolerates ONE consecutive unaudited continuation (`auditFailStreak`); a
+      second consecutive PERMANENT failure settles the goal as `blocked`
+      ("progress audit unavailable") — resumable, and settling resets the
+      streak so Resume gets fresh tolerance. Transient audit failures
+      (status >= 500 or 429, per `error.status`/`error.statusCode`) never
+      consume the streak — a provider hiccup is logged and skipped. A dead
+      small model can never drive the loop blind to the turn cap;
    - continue: persist accounting + `turnsUsed` first (a crash after the
      write just waits for the next idle tick; the reverse could double-send),
      re-check the tail, then `POST /session/:id/prompt_async` with the

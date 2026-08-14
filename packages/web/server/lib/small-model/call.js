@@ -582,7 +582,13 @@ export async function callSmallModel({ auth, catalog, workingDirectory, provider
   const providerConfig = readProviderConfig(workingDirectory, providerID);
   // Match OpenCode's resolveSDK precedence:
   // config provider.<id>.options.apiKey wins; the auth.json entry is only a fallback.
-  const entry = providerConfig?.auth || getAuthEntryForProvider(auth, providerID);
+  const entry = providerConfig?.auth || getAuthEntryForProvider(auth, providerID) ||
+    // Mirror OpenCode's own provider auth: the `opencode` provider needs no
+    // login for its free models — OpenCode sends `apiKey: "public"` and
+    // drops paid models instead (provider.ts `opencode` loader). Without
+    // this, the session-goal small-model audit 401s on every local-only
+    // auth store (auth.json holds just `local`).
+    (providerID === 'opencode' ? { type: 'api', key: 'public' } : null);
   if (!entry) {
     // Structured so the walkthrough (and any other caller) can show a blocker
     // instead of a raw 500 banner with this developer-oriented sentence.

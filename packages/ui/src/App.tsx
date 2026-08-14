@@ -562,6 +562,20 @@ function App({ apis }: AppProps) {
     scopedWindow.__openchamberSetEmbeddedVisibility = applyVisibility;
     window.addEventListener('message', handleMessage);
 
+    // Visibility is normally pushed by the parent (context panel) after the
+    // frame loads. That push is one-way and can be lost if it fires while
+    // this frame is still mounting, leaving the embedded chat permanently
+    // inactive — the panel then renders the empty state while the message
+    // data is already materialized. Ask the parent explicitly so the state
+    // is always delivered (handshake instead of fire-and-forget).
+    const requestEmbeddedVisibility = () => {
+      if (typeof window === 'undefined' || !window.parent || window.parent === window) {
+        return;
+      }
+      window.parent.postMessage({ type: 'openchamber:embedded-visibility-request' }, window.location.origin);
+    };
+    requestEmbeddedVisibility();
+
     return () => {
       window.removeEventListener('message', handleMessage);
       if (scopedWindow.__openchamberSetEmbeddedVisibility === applyVisibility) {

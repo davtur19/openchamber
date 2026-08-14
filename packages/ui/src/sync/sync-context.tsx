@@ -3001,6 +3001,24 @@ function getVisibleMessagesForSession(state: State, sessionID: string, previous?
   }
 }
 
+/**
+ * Read-through snapshot for panels whose subscription is gated off
+ * (`enabled: false`): returns the already-materialized session history when
+ * the store holds it, or null when the session is not renderable yet.
+ * This lets an inactive embedded chat paint loaded history instead of
+ * remaining stuck on an empty state while it waits for activation.
+ */
+export function readInactiveSessionMessageRecords(
+  state: State,
+  sessionID: string,
+  previous?: SessionMessageRecordsSnapshot,
+): SessionMessageRecordsSnapshot | null {
+  if (!getSessionMaterializationStatus(state, sessionID).renderable) {
+    return null
+  }
+  return buildSessionMessageRecordsSnapshot(state, sessionID, previous, false, undefined)
+}
+
 export function buildSessionMessageRecordsSnapshot(
   state: State,
   sessionID: string,
@@ -3164,7 +3182,20 @@ export function useSessionMessageRecords(
       return EMPTY_SESSION_MESSAGE_RECORDS
     }
     if (options?.enabled === false) {
-      return snapshotRef.current.sessionID === sessionID ? snapshotRef.current.list : EMPTY_SESSION_MESSAGE_RECORDS
+      if (snapshotRef.current.sessionID === sessionID) {
+        return snapshotRef.current.list
+      }
+      // Read-through: an inactive embedded panel (e.g. the context-panel
+      // session chat before its visibility handshake completes) still paints
+      // history that is already materialized in the store. Without this the
+      // panel stays permanently empty even though the data arrived — the
+      // message list and the live-status row diverge (issue #2892/#2903).
+      const readSnapshot = readInactiveSessionMessageRecords(store.getState(), sessionID, snapshotRef.current)
+      if (readSnapshot) {
+        snapshotRef.current = readSnapshot
+        return readSnapshot.list
+      }
+      return EMPTY_SESSION_MESSAGE_RECORDS
     }
 
     const state = store.getState()

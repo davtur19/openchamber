@@ -870,6 +870,14 @@ export const ContextPanel: React.FC = () => {
         postChatSettingsSyncToEmbeddedChat();
         return;
       }
+      if (data?.type === 'openchamber:embedded-visibility-request') {
+        // The embedded frame asks for its visibility state after mounting,
+        // because the initial push can be lost during iframe bootstrap (it is
+        // one-way with no ack/retry). Answering here makes activation
+        // deterministic instead of leaving the chat stuck inactive.
+        postEmbeddedVisibilityToChats();
+        return;
+      }
       if (data?.type !== 'openchamber:cycle-theme-request') {
         return;
       }
@@ -882,7 +890,7 @@ export const ContextPanel: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [postChatSettingsSyncToEmbeddedChat, postThemeSyncToEmbeddedChat, setThemeMode, themeMode]);
+  }, [postChatSettingsSyncToEmbeddedChat, postEmbeddedVisibilityToChats, postThemeSyncToEmbeddedChat, setThemeMode, themeMode]);
 
   React.useLayoutEffect(() => {
     const hasAnyChatTab = tabs.some((tab) => tab.mode === 'chat');

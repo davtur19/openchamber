@@ -131,3 +131,28 @@ export const buildTaskSummaryEntriesFromSession = (messages: MessageRecord[]): T
 export const stripTaskMetadataFromOutput = (output: string): string => {
     return output.replace(/\n*<task_metadata>[\s\S]*?<\/task_metadata>\s*$/i, '').trimEnd();
 };
+
+export type TaskToolEmptyState =
+    | { kind: 'content' }
+    | { kind: 'waiting' }
+    | { kind: 'blocked'; reason: string }
+    | { kind: 'missingMetadata' };
+
+export const resolveTaskToolEmptyState = (input: {
+    hasEntries: boolean;
+    hasOutput: boolean;
+    hasSessionId: boolean;
+    isActive: boolean;
+    error?: string;
+}): TaskToolEmptyState => {
+    if (input.hasEntries || input.hasOutput || input.hasSessionId) {
+        return { kind: 'content' };
+    }
+    if (input.isActive) {
+        return { kind: 'waiting' };
+    }
+    if (input.error) {
+        return { kind: 'blocked', reason: input.error };
+    }
+    return { kind: 'missingMetadata' };
+};

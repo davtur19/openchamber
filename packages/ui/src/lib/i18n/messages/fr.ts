@@ -1966,6 +1966,7 @@ export const dict = {
   'chat.toolPart.noOutputProduced': 'Aucune sortie produite',
   'chat.toolPart.output': 'Sortie',
   'chat.toolPart.openSubtask': 'Ouvrir la sous-tâche {type}',
+  'chat.toolPart.blocked': 'Bloqué',
   'chat.todo.total': 'Total',
   'chat.todo.inProgress': 'En cours',
   'chat.todo.pending': 'En attente',

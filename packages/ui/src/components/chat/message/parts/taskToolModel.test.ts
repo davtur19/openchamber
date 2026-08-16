@@ -6,6 +6,7 @@ import {
     parseTaskMetadataBlock,
     readTaskSessionIdFromRecord,
     readTaskSessionIdFromOutput,
+    resolveTaskToolEmptyState,
 } from './taskToolModel';
 
 describe('taskToolModel', () => {
@@ -38,5 +39,76 @@ describe('taskToolModel', () => {
             tool: 'read',
             state: { status: 'completed', title: undefined, input: { filePath: 'a.ts' } },
         }]);
+    });
+});
+
+describe('resolveTaskToolEmptyState', () => {
+    test('blocked-before-spawn task renders terminal BLOCKED state with the block reason', () => {
+        const state = resolveTaskToolEmptyState({
+            hasEntries: false,
+            hasOutput: false,
+            hasSessionId: false,
+            isActive: false,
+            error: 'project-memory gate: a worker is already delegated for this work',
+        });
+        expect(state).toEqual({ kind: 'blocked', reason: 'project-memory gate: a worker is already delegated for this work' });
+    });
+
+    test('a blocked-before-spawn task is terminal, never "waiting" or "missing metadata"', () => {
+        const state = resolveTaskToolEmptyState({
+            hasEntries: false,
+            hasOutput: false,
+            hasSessionId: false,
+            isActive: false,
+            error: 'project-memory gate: block',
+        });
+        expect(state.kind).toBe('blocked');
+        expect(state.kind).not.toBe('waiting');
+        expect(state.kind).not.toBe('missingMetadata');
+    });
+
+    test('an allowed task with a child session resolves to content (session link shown)', () => {
+        const state = resolveTaskToolEmptyState({
+            hasEntries: true,
+            hasOutput: false,
+            hasSessionId: true,
+            isActive: false,
+            error: undefined,
+        });
+        expect(state).toEqual({ kind: 'content' });
+    });
+
+    test('a finalized task with genuinely missing child metadata keeps the real error visible', () => {
+        const state = resolveTaskToolEmptyState({
+            hasEntries: false,
+            hasOutput: false,
+            hasSessionId: false,
+            isActive: false,
+            error: undefined,
+        });
+        expect(state).toEqual({ kind: 'missingMetadata' });
+    });
+
+    test('an active task with no content yet resolves to waiting, not blocked', () => {
+        const state = resolveTaskToolEmptyState({
+            hasEntries: false,
+            hasOutput: false,
+            hasSessionId: false,
+            isActive: true,
+            error: undefined,
+        });
+        expect(state).toEqual({ kind: 'waiting' });
+    });
+
+    test('no phantom running/polling after a block: error state never yields waiting', () => {
+        const state = resolveTaskToolEmptyState({
+            hasEntries: false,
+            hasOutput: false,
+            hasSessionId: false,
+            isActive: false,
+            error: 'project-memory gate: block',
+        });
+        expect(state.kind).toBe('blocked');
+        expect(readTaskSessionIdFromRecord({})).toBe(undefined);
     });
 });

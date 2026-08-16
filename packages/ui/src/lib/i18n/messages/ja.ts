@@ -2260,6 +2260,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.toolPart.copiedOutput': '出力をコピーしました',
   'chat.toolPart.copyOutputFailed': '出力のコピーに失敗しました',
   'chat.toolPart.openSubtask': '{type}サブタスクを開く',
+  'chat.toolPart.blocked': 'ブロック',
   'chat.todo.total': '合計',
   'chat.todo.inProgress': '進行中',
   'chat.todo.pending': '保留中',

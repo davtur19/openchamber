@@ -2088,6 +2088,7 @@ export const dict = {
   'chat.toolPart.copiedOutput': 'Ausgabe kopiert',
   'chat.toolPart.copyOutputFailed': 'Kopieren der Ausgabe fehlgeschlagen',
   'chat.toolPart.openSubtask': '{type}-Unteraufgabe öffnen',
+  'chat.toolPart.blocked': 'Blockiert',
   'chat.todo.total': 'Gesamt',
   'chat.todo.inProgress': 'In Bearbeitung',
   'chat.todo.pending': 'Ausstehend',

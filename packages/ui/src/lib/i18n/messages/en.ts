@@ -2250,6 +2250,7 @@ export const dict = {
   'chat.toolPart.moreErrors': '+{count} more errors',
   'chat.toolPart.error': 'Error:',
   'chat.toolPart.awaitingResponse': 'Awaiting response...',
+  'chat.toolPart.blocked': 'Blocked',
   'chat.toolPart.noOutputProduced': 'No output produced',
   'chat.toolPart.output': 'Output',
   'chat.toolPart.showRawJson': 'Show raw JSON',

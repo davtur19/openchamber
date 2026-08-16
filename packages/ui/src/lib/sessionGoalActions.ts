@@ -156,7 +156,7 @@ export async function setSessionGoalStatus(
   // as the stop button, expressed through goal control. A no-op when the
   // session is already idle.
   if (status === 'paused') {
-    void abortCurrentOperation(sessionId);
+    void abortCurrentOperation(sessionId, 'pause-goal');
   }
   await writeGoal(sessionId, directory, (currentGoal) => {
     if (!currentGoal) return null;
@@ -185,6 +185,6 @@ export async function clearSessionGoal(sessionId: string, directory: string | un
   // Removing a running goal is a "stop" too — abort the current turn like
   // pause does. A no-op when the session is idle.
   if (wasActive) {
-    void abortCurrentOperation(sessionId);
+    void abortCurrentOperation(sessionId, 'clear-goal');
   }
 }

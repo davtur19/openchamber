@@ -139,6 +139,10 @@ export const useKeyboardShortcuts = () => {
 
     const handleEscapeKeyDownCapture = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // Ignore OS-level key autorepeat: holding Escape must not count as a
+      // second press, or keeping the key down to close a modal/menu would arm
+      // and immediately fire a session abort.
+      if (e.repeat) return;
 
       const target = e.target as Element | null;
       const isInsideDialog = Boolean(target?.closest('[role="dialog"]'));
@@ -202,7 +206,7 @@ export const useKeyboardShortcuts = () => {
       if (primedUntil && now < primedUntil) {
         e.preventDefault();
         resetAbortPriming();
-        void abortCurrentOperation(sessionId);
+        void abortCurrentOperation(sessionId, 'escape');
         return;
       }
 

@@ -14,6 +14,7 @@ import { mergeSessionDirectoryMetadata, resolveGlobalSessionDirectory, useGlobal
 import { useConfigStore } from "@/stores/useConfigStore"
 import { registerSessionDirectory } from "./sync-refs"
 import { recordSendFailure } from "./send-failure-log"
+import { getSessionGoal } from "@/lib/sessionGoalMetadata"
 import { isSyntheticPart } from "@/lib/messages/synthetic"
 import { materializeSessionSnapshots } from "./materialization"
 import { stripMessageDiffSnapshots, stripSessionDiffSnapshots } from "./sanitize"
@@ -1527,18 +1528,91 @@ function materializeConfirmedSendRecords(
 // Abort
 // ---------------------------------------------------------------------------
 
-export async function abortCurrentOperation(sessionId: string): Promise<void> {
-  // The abort must carry the SESSION'S directory, not the active UI directory:
-  // OpenCode routes the request to the per-directory instance, and an abort
-  // sent to the wrong instance cancels nothing while still returning 200 true
-  // (the "stop button does nothing" report — sessions in another project/
-  // worktree than the UI's current directory could never be aborted).
+/**
+ * Why an abort was requested. Every caller must label its abort so ghost-abort
+ * investigations can attribute each `session.abort` to a concrete UI action.
+ */
+export type SessionAbortSource =
+  | "stop-button"
+  | "escape"
+  | "pause-goal"
+  | "clear-goal"
+  | "revert"
+  | "unrevert"
+
+const abortTraceEnabled = (): boolean => {
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem("openchamber_abort_perf") === "1"
+  } catch {
+    return false
+  }
+}
+
+function readGoalStatus(sessionId: string, directory: string | undefined): string | undefined {
+  if (!directory) return undefined
+  const store = _childStores?.getChild(directory)
+  if (!store) return undefined
+  const session = store.getState().session.find((s: Session) => s.id === sessionId)
+  return session ? getSessionGoal(session)?.status : undefined
+}
+
+function traceAbort(source: SessionAbortSource, sessionId: string, directory: string | undefined): void {
+  if (!abortTraceEnabled()) return
+  const ui = useSessionUIStore.getState()
+  const status = (() => {
+    if (!directory) return undefined
+    const store = _childStores?.getChild(directory)
+    return store?.getState().session_status?.[sessionId]
+  })()
+  const phase = status ? status.type : "none"
+  console.debug("[session-abort]", {
+    timestamp: new Date().toISOString(),
+    source,
+    sessionId,
+    directory,
+    phase,
+    goalStatus: readGoalStatus(sessionId, directory),
+    currentSessionId: ui.currentSessionId,
+    currentSessionDirectory: ui.currentSessionDirectory,
+    stack: new Error().stack?.split("\n").slice(1).join("\n"),
+  })
+}
+
+/**
+ * Single funnel for every `session.abort` in the UI. Every callsite passes a
+ * semantic `source` so ghost-abort reports can be attributed to a concrete UI
+ * action instead of an opaque SDK call.
+ *
+ * The abort must carry the SESSION'S directory, not the active UI directory:
+ * OpenCode routes the request to the per-directory instance, and an abort
+ * sent to the wrong instance cancels nothing while still returning 200 true
+ * (the "stop button does nothing" report — sessions in another project/
+ * worktree than the UI's current directory could never be aborted).
+ */
+export async function abortSession(sessionId: string, source: SessionAbortSource): Promise<void> {
   const { directory } = dirStoreForSession(sessionId)
+  // Goal controls (pause/clear) declare a no-op when the session is already
+  // idle. Honor that here so an abort HTTP is not fired at an idle session,
+  // which would otherwise show up as a spurious `session.abort` in the server.
+  if (source === "pause-goal" || source === "clear-goal") {
+    const store = directory ? _childStores?.getChild(directory) : undefined
+    const status = store?.getState().session_status?.[sessionId]
+    if (status && status.type === "idle") {
+      traceAbort(source, sessionId, directory)
+      return
+    }
+  }
+  traceAbort(source, sessionId, directory)
   try {
     await sdk().session.abort({ sessionID: sessionId, directory })
   } catch (error) {
     console.error("[session-actions] abort failed", error)
   }
+}
+
+export async function abortCurrentOperation(sessionId: string, source: SessionAbortSource = "stop-button"): Promise<void> {
+  await abortSession(sessionId, source)
 }
 
 // ---------------------------------------------------------------------------
@@ -1807,11 +1881,7 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
   // Abort if busy before mutating session state
   const status = state.session_status[sessionId]
   if (status && status.type !== "idle") {
-    try {
-      await sdk().session.abort({ sessionID: sessionId, directory })
-    } catch {
-      // ignore abort errors
-    }
+    await abortSession(sessionId, "revert")
   }
 
   // Extract message text for prompt restoration (only non-synthetic text parts —
@@ -1949,11 +2019,7 @@ export async function unrevertSession(sessionId: string): Promise<void> {
   // Abort if busy
   const status = state.session_status[sessionId]
   if (status && status.type !== "idle") {
-    try {
-      await sdk().session.abort({ sessionID: sessionId, directory })
-    } catch {
-      // ignore
-    }
+    await abortSession(sessionId, "unrevert")
   }
 
   const result = await sdk().session.unrevert({ sessionID: sessionId, directory })

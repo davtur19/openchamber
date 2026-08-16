@@ -1287,6 +1287,116 @@ describe("respondToPermission passes directory", () => {
   })
 })
 
+describe("abortSession funnel and abort sources", () => {
+  beforeEach(() => {
+    replyCalls.length = 0
+    scopedClientDirectories.length = 0
+  })
+
+  test("routes abort through the session directory instead of the current directory", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session] })
+    const currentStore = createStore({})
+    const childStores = createChildStores([
+      ["/test/project", sessionStore],
+      ["/current/project", currentStore],
+    ])
+
+    const { setActionRefs, abortSession } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/current/project")
+
+    await abortSession("session-a", "stop-button")
+
+    const abortCall = replyCalls.find((call) => call.method === "session.abort")
+    expect(abortCall?.params).toEqual({ sessionID: "session-a", directory: "/test/project" })
+  })
+
+  test("abortCurrentOperation forwards its source through the funnel", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session] })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+
+    const { setActionRefs, abortCurrentOperation } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/current/project")
+
+    await abortCurrentOperation("session-a", "escape")
+
+    const abortCall = replyCalls.find((call) => call.method === "session.abort")
+    expect(abortCall?.params).toEqual({ sessionID: "session-a", directory: "/test/project" })
+  })
+
+  test("revertToMessage aborts only a busy session through the funnel", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const targetMessage = { id: "msg_2", sessionID: "session-a", role: "user", time: { created: 2 } } as Message
+    const targetPart = { id: "prt_2", messageID: "msg_2", type: "text", text: "edit this" } as Part
+    const sessionStore = createStore({}, {
+      session: [session],
+      session_status: { "session-a": { type: "busy" } },
+      message: { "session-a": [targetMessage] },
+      part: { "msg_2": [targetPart] },
+    })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+    sessionRevertResult = { data: { id: "session-a", time: { created: 1, updated: 2 }, revert: { messageID: "msg_2" } } }
+
+    const { setActionRefs, revertToMessage } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await revertToMessage("session-a", "msg_2")
+
+    const abortCall = replyCalls.find((call) => call.method === "session.abort")
+    expect(abortCall?.params).toEqual({ sessionID: "session-a", directory: "/test/project" })
+  })
+
+  test("revertToMessage does not abort an idle session", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const targetMessage = { id: "msg_2", sessionID: "session-a", role: "user", time: { created: 2 } } as Message
+    const targetPart = { id: "prt_2", messageID: "msg_2", type: "text", text: "edit this" } as Part
+    const sessionStore = createStore({}, {
+      session: [session],
+      session_status: { "session-a": { type: "idle" } },
+      message: { "session-a": [targetMessage] },
+      part: { "msg_2": [targetPart] },
+    })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+    sessionRevertResult = { data: { id: "session-a", time: { created: 1, updated: 2 }, revert: { messageID: "msg_2" } } }
+
+    const { setActionRefs, revertToMessage } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await revertToMessage("session-a", "msg_2")
+
+    expect(replyCalls.some((call) => call.method === "session.abort")).toBe(false)
+    expect(replyCalls.some((call) => call.method === "session.revert")).toBe(true)
+  })
+
+  test("pause-goal does not abort an already idle session", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "idle" } } })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+
+    const { setActionRefs, abortSession } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await abortSession("session-a", "pause-goal")
+
+    expect(replyCalls.some((call) => call.method === "session.abort")).toBe(false)
+  })
+
+  test("pause-goal aborts a busy session", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+
+    const { setActionRefs, abortSession } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await abortSession("session-a", "pause-goal")
+
+    const abortCall = replyCalls.find((call) => call.method === "session.abort")
+    expect(abortCall?.params).toEqual({ sessionID: "session-a", directory: "/test/project" })
+  })
+})
+
 describe("revertToMessage passes session directory", () => {
   beforeEach(() => {
     replyCalls.length = 0

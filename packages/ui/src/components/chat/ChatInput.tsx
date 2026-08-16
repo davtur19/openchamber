@@ -337,7 +337,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const consumePendingSyntheticParts = useInputStore((s) => s.consumePendingSyntheticParts);
     const acknowledgeSessionAbort = useSessionUIStore((s) => s.acknowledgeSessionAbort);
     const abortCurrentOperation = React.useCallback(
-        (sessionIdOverride?: string) => sessionActions.abortCurrentOperation(sessionIdOverride ?? currentSessionId ?? ''),
+        (sessionIdOverride?: string) =>
+            sessionActions.abortCurrentOperation(sessionIdOverride ?? currentSessionId ?? '', 'stop-button'),
         [currentSessionId],
     );
     const currentManagementSessionId = currentSessionId;

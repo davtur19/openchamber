@@ -197,6 +197,8 @@ High-frequency sync diagnostics are separately disabled by default. Set `localSt
 
 Browser profiling also enables `localStorage.openchamber_stream_perf` to capture bounded aggregate timings and render counts for chat projections, message components, and major sidebar boundaries. These metrics contain no session IDs or user content and are reset immediately before each recording.
 
+Session-abort tracing is disabled by default. Set `localStorage.openchamber_abort_perf` to `"1"` before reload to log every `session.abort` to the console with `console.debug("[session-abort]", ...)`. Each entry carries the semantic source (`stop-button`, `escape`, `pause-goal`, `clear-goal`, `revert`, `unrevert`), the session id and directory, the observed session phase, the session goal status, the current session id/directory, and a caller stack — so a ghost-abort report can be attributed to the concrete UI action that fired it. The funnel also honors the goal-control contract: `pause-goal`/`clear-goal` aborts are skipped when the target session is already idle, matching the documented no-op. Only the caller stack, session id, directory, and phase are recorded — never message or part content.
+
 The profiler also emits a user-timing mark when pending global-session recency is committed at a lifecycle edge. `summary.json.longTaskAttribution` correlates that mark with enclosing long tasks without recording session data.
 
 Streaming assistant and reasoning text is throttled once before reaching the markdown renderer. The renderer incrementally reconciles changed markdown blocks but does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.

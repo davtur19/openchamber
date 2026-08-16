@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test"
+import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test"
 import type { PermissionRequest } from "@/types/permission"
 import type { QuestionRequest } from "@/types/question"
 
@@ -1391,6 +1391,96 @@ describe("abortSession funnel and abort sources", () => {
     setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
 
     await abortSession("session-a", "pause-goal")
+
+    const abortCall = replyCalls.find((call) => call.method === "session.abort")
+    expect(abortCall?.params).toEqual({ sessionID: "session-a", directory: "/test/project" })
+  })
+})
+
+describe("abort trace ring buffer", () => {
+  const ABORT_TRACE_STORAGE_KEY = "openchamber.abortTrace.v1"
+  let storage = new Map<string, string>()
+
+  const fakeWindow = (): { localStorage: Pick<Storage, "getItem" | "setItem" | "removeItem"> } => ({
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => { storage.set(key, value) },
+      removeItem: (key: string) => { storage.delete(key) },
+    },
+  })
+
+  beforeEach(() => {
+    storage = new Map()
+    replyCalls.length = 0
+    scopedClientDirectories.length = 0
+    Object.defineProperty(globalThis, "window", { value: fakeWindow(), configurable: true })
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "window")
+  })
+
+  test("records every abort with its source, always-on", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+
+    const { setActionRefs, abortSession, getAbortTrace } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await abortSession("session-a", "escape")
+
+    const trace = getAbortTrace()
+    expect(trace.length).toBe(1)
+    expect(trace[0]?.source).toBe("escape")
+    expect(trace[0]?.sessionId).toBe("session-a")
+    expect(trace[0]?.directory).toBe("/test/project")
+    expect(trace[0]?.phase).toBe("busy")
+  })
+
+  test("caps the ring buffer at 100 events", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+
+    const { setActionRefs, abortSession, getAbortTrace } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    for (let i = 0; i < 105; i += 1) {
+      await abortSession("session-a", "stop-button")
+    }
+
+    const trace = getAbortTrace()
+    expect(trace.length).toBe(100)
+    const stored = JSON.parse(storage.get(ABORT_TRACE_STORAGE_KEY) ?? "[]") as unknown[]
+    expect(stored.length).toBe(100)
+  })
+
+  test("clearAbortTrace empties the buffer", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+
+    const { setActionRefs, abortSession, getAbortTrace, clearAbortTrace } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await abortSession("session-a", "revert")
+    expect(getAbortTrace().length).toBe(1)
+
+    clearAbortTrace()
+    expect(getAbortTrace().length).toBe(0)
+    expect(storage.has(ABORT_TRACE_STORAGE_KEY)).toBe(false)
+  })
+
+  test("tracing never blocks or breaks the abort itself", async () => {
+    const session = { id: "session-a", time: { created: 1 } } as Session
+    const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+
+    const { setActionRefs, abortSession } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await abortSession("session-a", "stop-button")
 
     const abortCall = replyCalls.find((call) => call.method === "session.abort")
     expect(abortCall?.params).toEqual({ sessionID: "session-a", directory: "/test/project" })

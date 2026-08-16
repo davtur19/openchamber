@@ -1540,12 +1540,59 @@ export type SessionAbortSource =
   | "revert"
   | "unrevert"
 
-const abortTraceEnabled = (): boolean => {
-  if (typeof window === "undefined") return false
+// Always-on, bounded abort trace. Ghost aborts are rare and (by definition)
+// unexpected: a debug flag gated it out of the very runs that would capture
+// the event. Instead, every `session.abort` funnelled here is appended to a
+// capped ring buffer in localStorage, so the latest events survive DevTools
+// being closed. No message/part content, tokens, or credentials are recorded.
+const ABORT_TRACE_STORAGE_KEY = "openchamber.abortTrace.v1"
+const ABORT_TRACE_MAX_EVENTS = 100
+const ABORT_TRACE_STACK_FRAMES = 8
+
+export type AbortTraceEvent = {
+  timestamp: string
+  source: SessionAbortSource
+  sessionId: string
+  directory?: string
+  phase?: string
+  goalStatus?: string
+  currentSessionId?: string
+  currentSessionDirectory?: string
+  stack?: string
+}
+
+export function getAbortTrace(): AbortTraceEvent[] {
+  if (typeof window === "undefined") return []
   try {
-    return window.localStorage.getItem("openchamber_abort_perf") === "1"
+    const raw = window.localStorage.getItem(ABORT_TRACE_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
   } catch {
-    return false
+    return []
+  }
+}
+
+export function clearAbortTrace(): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(ABORT_TRACE_STORAGE_KEY)
+  } catch {
+    // Never let tracing storage failure interfere with the abort itself.
+  }
+}
+
+function recordAbortTrace(event: AbortTraceEvent): void {
+  console.debug("[session-abort]", event)
+  if (typeof window === "undefined") return
+  try {
+    const events = getAbortTrace()
+    events.push(event)
+    const kept = events.slice(-ABORT_TRACE_MAX_EVENTS)
+    window.localStorage.setItem(ABORT_TRACE_STORAGE_KEY, JSON.stringify(kept))
+  } catch {
+    // Ring buffer is best-effort; a full/quota localStorage must not break
+    // the abort path.
   }
 }
 
@@ -1558,7 +1605,6 @@ function readGoalStatus(sessionId: string, directory: string | undefined): strin
 }
 
 function traceAbort(source: SessionAbortSource, sessionId: string, directory: string | undefined): void {
-  if (!abortTraceEnabled()) return
   const ui = useSessionUIStore.getState()
   const status = (() => {
     if (!directory) return undefined
@@ -1566,16 +1612,17 @@ function traceAbort(source: SessionAbortSource, sessionId: string, directory: st
     return store?.getState().session_status?.[sessionId]
   })()
   const phase = status ? status.type : "none"
-  console.debug("[session-abort]", {
+  const stack = new Error().stack?.split("\n").slice(1, 1 + ABORT_TRACE_STACK_FRAMES).join("\n") ?? undefined
+  recordAbortTrace({
     timestamp: new Date().toISOString(),
     source,
     sessionId,
     directory,
     phase,
     goalStatus: readGoalStatus(sessionId, directory),
-    currentSessionId: ui.currentSessionId,
-    currentSessionDirectory: ui.currentSessionDirectory,
-    stack: new Error().stack?.split("\n").slice(1).join("\n"),
+    currentSessionId: ui.currentSessionId ?? undefined,
+    currentSessionDirectory: ui.currentSessionDirectory ?? undefined,
+    stack,
   })
 }
 

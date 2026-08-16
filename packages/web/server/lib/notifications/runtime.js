@@ -333,6 +333,7 @@ export const createNotificationTriggerRuntime = (deps) => {
     if (payload.type === 'message.updated') {
       const info = payload.properties?.info;
       if (info?.role === 'assistant' && info?.finish === 'stop' && sessionId) {
+        if (info?.summary === true) return;
         const settings = await readSettingsFromDisk();
 
         if (settings.notifyOnSubtasks === false) {

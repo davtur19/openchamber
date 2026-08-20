@@ -5,6 +5,7 @@ import { readAuthFile, writeAuthFile } from '../opencode/auth.js';
 import { readConfig, readConfigLayers } from '../opencode/shared.js';
 import { getCatalogProvider } from './catalog.js';
 import { getAuthEntryForProvider } from './resolve.js';
+import { getRuntimeProvider } from './runtime-providers.js';
 
 // Direct, non-streaming text generation against the provider APIs, replicating
 // how OpenCode authenticates each of them (see the plugin auth loaders in the
@@ -567,28 +568,56 @@ const readProviderConfig = (workingDirectory, providerID) => {
 // ---------------------------------------------------------------------------
 
 /**
+ * Providers reached through a dedicated wire format below: a token exchange,
+ * an OAuth refresh, or a non-bearer header. OpenCode's runtime
+ * `options.apiKey` is not the value those branches need — the ChatGPT-plan
+ * `openai` login is the clearest case, where the runtime key is an OAuth
+ * access token that api.openai.com answers with 401 — so the runtime
+ * credential never stands in for them, and the runtime listing skips them
+ * because the auth.json scan already covers them.
+ */
+export const DEDICATED_WIRE_FORMAT_PROVIDERS = new Set(['github-copilot', 'copilot', 'openai', 'anthropic', 'google']);
+
+/**
+ * The runtime credential shaped as an auth entry, or `null` when the provider
+ * owns its credential handling or OpenCode reports nothing usable.
+ */
+const runtimeCredential = (providerID, runtime) => (
+  !DEDICATED_WIRE_FORMAT_PROVIDERS.has(providerID) && runtime?.apiKey
+    ? { type: 'api', key: runtime.apiKey }
+    : null
+);
+
+/**
  * Same credential resolution the request path uses: config
- * `provider.<id>.options.apiKey` wins, then the auth.json entry.
+ * `provider.<id>.options.apiKey` wins, then the runtime credential OpenCode
+ * resolved for a plugin provider, then the auth.json entry.
  * Callers that need to refuse before spending a request (walkthrough readiness)
  * must use this rather than inventing a second rule.
  */
-export function resolveProviderLogin({ auth, workingDirectory, providerID }) {
+export async function resolveProviderLogin({ auth, workingDirectory, providerID }) {
   const providerConfig = readProviderConfig(workingDirectory, providerID);
-  return providerConfig?.auth || getAuthEntryForProvider(auth, providerID) || null;
+  return providerConfig?.auth
+    || runtimeCredential(providerID, await getRuntimeProvider(providerID))
+    || getAuthEntryForProvider(auth, providerID)
+    || null;
 }
 
 export async function callSmallModel({ auth, catalog, workingDirectory, providerID, modelID, prompt, system, maxOutputTokens, responseSchema, timeoutMs, signal }) {
   const tokens = Number(maxOutputTokens) > 0 ? Number(maxOutputTokens) : DEFAULT_MAX_OUTPUT_TOKENS;
   const providerConfig = readProviderConfig(workingDirectory, providerID);
-  // Match OpenCode's resolveSDK precedence:
-  // config provider.<id>.options.apiKey wins; the auth.json entry is only a fallback.
-  const entry = providerConfig?.auth || getAuthEntryForProvider(auth, providerID) ||
-    // Mirror OpenCode's own provider auth: the `opencode` provider needs no
-    // login for its free models — OpenCode sends `apiKey: "public"` and
-    // drops paid models instead (provider.ts `opencode` loader). Without
-    // this, the session-goal small-model audit 401s on every local-only
-    // auth store (auth.json holds just `local`).
-    (providerID === 'opencode' ? { type: 'api', key: 'public' } : null);
+  const runtimeProvider = await getRuntimeProvider(providerID);
+  // Match OpenCode's resolveSDK precedence: config `provider.<id>.options`
+  // wins, then what OpenCode itself resolved at runtime (the only place a
+  // plugin's credential exists), the auth.json entry, and — mirroring
+  // OpenCode's own provider auth (provider.ts `opencode` loader) — a public
+  // apiKey for the `opencode` provider, whose free models need no login.
+  // Without that last fallback, the session-goal small-model audit 401s on
+  // every local-only auth store (auth.json holds just `local`).
+  const entry = providerConfig?.auth
+    || runtimeCredential(providerID, runtimeProvider)
+    || getAuthEntryForProvider(auth, providerID)
+    || (providerID === 'opencode' ? { type: 'api', key: 'public' } : null);
   if (!entry) {
     // Structured so the walkthrough (and any other caller) can show a blocker
     // instead of a raw 500 banner with this developer-oriented sentence.
@@ -691,9 +720,12 @@ export async function callSmallModel({ auth, catalog, workingDirectory, provider
   // Everything else: OpenAI-compatible chat completions against the catalog's
   // base URL for that provider (openai itself included). When a custom provider
   // is not in the catalog (e.g. a user-configured OpenAI-compatible proxy),
-  // fall back to its baseURL from the OpenCode provider config. The openai
-  // provider also respects provider.openai.options.baseURL — OpenCode itself
-  // uses the same config for all providers including openai.
+  // fall back to its baseURL from the OpenCode provider config, then to the
+  // endpoint OpenCode resolved at runtime — which for a plugin provider is the
+  // only place it exists, and for several of them is a local proxy the plugin
+  // itself runs. The openai provider also respects
+  // provider.openai.options.baseURL — OpenCode itself uses the same config for
+  // all providers including openai.
   const provider = getCatalogProvider(catalog, providerID);
   const providerConfigUrl = providerConfig?.baseURL;
   const defaultOpenaiUrl = 'https://api.openai.com/v1';
@@ -701,9 +733,10 @@ export async function callSmallModel({ auth, catalog, workingDirectory, provider
     ? providerConfigUrl
     : providerID === 'openai'
       ? defaultOpenaiUrl
-      : typeof provider?.api === 'string' && provider.api
-        ? provider.api
-        : null;
+      : runtimeProvider?.baseURL
+        ?? (typeof provider?.api === 'string' && provider.api
+          ? provider.api
+          : null);
   if (!baseURL) {
     throw new Error(`Provider "${providerID}" has no known API base URL`);
   }

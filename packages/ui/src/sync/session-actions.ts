@@ -17,6 +17,8 @@ import { useGlobalSessionStatusStore } from "./global-session-status"
 import { recordSendFailure } from "./send-failure-log"
 import { getSessionGoal } from "@/lib/sessionGoalMetadata"
 import { isSyntheticPart } from "@/lib/messages/synthetic"
+import { draftFromContextPayload, readContextPart, type ContextCarrierPart } from "@/lib/messages/contextParts"
+import { useInlineCommentDraftStore, type InlineCommentDraftTarget } from "@/stores/useInlineCommentDraftStore"
 import { materializeSessionSnapshots } from "./materialization"
 import { stripMessageDiffSnapshots, stripSessionDiffSnapshots } from "./sanitize"
 import { sessionEvents } from "@/lib/sessionEvents"
@@ -596,6 +598,32 @@ function restoreFilePartsToInput(fileParts: Array<Record<string, unknown>>): voi
     if (url) {
       useInputStore.getState().addRestoredAttachment({ url, mimeType: mime, filename })
     }
+  }
+}
+
+/**
+ * Put a message's attached context (review comments, quotes, terminal
+ * selections, annotations) back on the composer chips.
+ *
+ * Context rides out as synthetic parts carrying structured metadata, so a
+ * reverted or forked message can be rebuilt into the drafts it came from.
+ * Without this the context is simply gone: the message is pulled back into the
+ * composer with its text and files, but the comments attached to it are not.
+ *
+ * The target's existing drafts are replaced, matching how text and file
+ * attachments are restored — the composer ends up as the message was sent.
+ */
+function restoreContextPartsToInput(
+  parts: readonly ContextCarrierPart[],
+  target: InlineCommentDraftTarget,
+): void {
+  const store = useInlineCommentDraftStore.getState()
+  store.clearDrafts(target)
+  for (const part of parts) {
+    const payload = readContextPart(part)
+    if (!payload) continue
+    const draft = draftFromContextPayload(payload)
+    if (draft) store.addDraft(target, draft)
   }
 }
 
@@ -2102,6 +2130,7 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
   const targetMsg = messages.find((m) => m.id === messageId)
   let messageText = ""
   let submittedFileParts: Array<Record<string, unknown>> = []
+  let submittedContextParts: readonly ContextCarrierPart[] = []
   if (targetMsg && targetMsg.role === "user") {
     const parts = state.part[messageId] ?? []
     const textParts = parts.filter((p) => p.type === "text" && !isSyntheticPart(p))
@@ -2113,6 +2142,9 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
     // Exclude synthetic file parts (server-generated file content that should
     // not be restored to the composer).
     submittedFileParts = parts.filter((p) => p.type === "file" && !isSyntheticPart(p)) as Array<Record<string, unknown>>
+    // Attached context (review comments, quotes, terminal selections) rides in
+    // synthetic text parts and belongs back on the composer chips.
+    submittedContextParts = parts
   }
 
   // Optimistically set only the revert marker. Keep messages and parts in the
@@ -2140,6 +2172,10 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
   const prevInputAttachments = [...useInputStore.getState().attachedFiles]
   const prevInputText = useInputStore.getState().pendingInputText
   const prevInputMode = useInputStore.getState().pendingInputMode
+  const draftTarget: InlineCommentDraftTarget | null = directory
+    ? { directory, sessionKey: sessionId }
+    : null
+  const prevDrafts = draftTarget ? useInlineCommentDraftStore.getState().getDrafts(draftTarget) : []
 
   // Restore reverted message text and file attachments to input
   if (messageText) {
@@ -2153,6 +2189,7 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
   // Clear existing attachments first — previous revert's attachments
   // must not carry over, even when the current message has no files.
   restoreFilePartsToInput(submittedFileParts)
+  if (draftTarget) restoreContextPartsToInput(submittedContextParts, draftTarget)
 
   // Call SDK and merge authoritative result into store
   try {
@@ -2187,6 +2224,10 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
       pendingInputMode: prevInputMode,
       attachedFiles: prevInputAttachments,
     })
+    if (draftTarget) {
+      useInlineCommentDraftStore.getState().clearDrafts(draftTarget)
+      useInlineCommentDraftStore.getState().restoreDrafts(draftTarget, prevDrafts)
+    }
     throw err
   }
 }
@@ -2305,6 +2346,11 @@ export async function forkFromMessage(sessionId: string, messageId: string): Pro
   }
   // Clear existing attachments and restore file parts from the forked message.
   restoreFilePartsToInput(fileParts)
+  // The forked session is a fresh draft target, so the attached context of the
+  // forked message follows the text into its composer.
+  if (directory) {
+    restoreContextPartsToInput(parts, { directory, sessionKey: forkedSession.id })
+  }
 }
 
 export async function fetchMessagesForSession(sessionID: string, directory?: string | null): Promise<void> {

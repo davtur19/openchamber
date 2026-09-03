@@ -3687,6 +3687,35 @@ export async function getBranches(directory) {
   }
 }
 
+/**
+ * Counts locally unpushed commits for a small caller-supplied set of local
+ * branches. This deliberately reads only local refs: the branch picker calls
+ * it when opened, never polls, and never fetches a remote behind the user's
+ * back. Unknown, remote, and upstream-less branches are omitted.
+ */
+export async function getUnpushedBranchCounts(directory, branchNames) {
+  const { git } = await createRepositoryGitContext(directory);
+  const requested = [...new Set(Array.isArray(branchNames) ? branchNames : [])]
+    .filter((name) => typeof name === 'string' && name.length > 0)
+    .slice(0, 5);
+  if (requested.length === 0) return { counts: {} };
+
+  const local = new Set((await git.branchLocal()).all);
+  const counts = {};
+  await Promise.all(requested.map(async (branch) => {
+    if (!local.has(branch)) return;
+    const upstream = await git.raw(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{upstream}`])
+      .then((value) => value.trim())
+      .catch(() => '');
+    if (!upstream) return;
+    const count = await git.raw(['rev-list', '--count', `${upstream}..${branch}`])
+      .then((value) => Number.parseInt(value.trim(), 10))
+      .catch(() => 0);
+    if (Number.isFinite(count) && count > 0) counts[branch] = count;
+  }));
+  return { counts };
+}
+
 async function getRemoteDefaultBranches(git) {
   let defaults = {};
 
@@ -4266,6 +4295,7 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
 
     const parsedRemoteStartRef = await resolveRemoteBranchRef(context.primaryWorktree, startRef);
     if (parsedRemoteStartRef) {
+      worktreeAddArgs.splice(2, 0, '--no-track');
       inferredUpstream = {
         remote: parsedRemoteStartRef.remote,
         branch: parsedRemoteStartRef.branch,
@@ -4280,17 +4310,28 @@ async function attachGitWorktreeToCandidate(context, candidate, input = {}) {
   if (mode === 'new') {
     const parsedRemoteStartRef = await resolveRemoteBranchRef(context.primaryWorktree, startRef);
     if (parsedRemoteStartRef) {
-      await fetchRemoteBranchRef(context.primaryWorktree, parsedRemoteStartRef.remote, parsedRemoteStartRef.branch);
+      try {
+        await fetchRemoteBranchRef(context.primaryWorktree, parsedRemoteStartRef.remote, parsedRemoteStartRef.branch);
+      } catch (error) {
+        const refExists = await runGitCommand(
+          context.primaryWorktree,
+          ['show-ref', '--verify', '--quiet', parsedRemoteStartRef.fullRef]
+        );
+        if (!refExists.success) {
+          throw error;
+        }
+        console.warn(`Worktree create: failed to refresh ${parsedRemoteStartRef.remote}/${parsedRemoteStartRef.branch}, proceeding with the existing remote-tracking ref`);
+      }
     }
   }
 
   await runGitCommandOrThrow(context.primaryWorktree, worktreeAddArgs, 'Failed to create git worktree');
 
   const upstreamRemote = shouldSetUpstream
-    ? String(inferredUpstream?.remote || input?.upstreamRemote || '').trim()
+    ? String(input?.upstreamRemote || inferredUpstream?.remote || '').trim()
     : '';
   const upstreamBranch = shouldSetUpstream
-    ? String(inferredUpstream?.branch || input?.upstreamBranch || '').trim()
+    ? String(input?.upstreamBranch || inferredUpstream?.branch || '').trim()
     : '';
 
   const bootstrapStatus = setWorktreeBootstrapState(

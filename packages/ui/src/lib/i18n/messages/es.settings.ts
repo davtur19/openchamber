@@ -1,5 +1,4 @@
 import { linearIntegrationI18n } from './linear-integration.i18n';
-import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 export const settingsDict = {
   'settings.providers.page.openCodeGo.title': 'Seguimiento de uso de OpenCode Go',
   'settings.providers.page.openCodeGo.description': 'Conecta el panel de OpenCode Go para ver las cuotas móvil, semanal y mensual.',
@@ -439,6 +438,11 @@ export const settingsDict = {
   "settings.projects.actions.field.actionNamePlaceholder": "Nombre de la acción",
   "settings.projects.actions.field.command": "Comando",
   "settings.projects.actions.field.commandPlaceholder": "p. ej. bun run lint",
+  "settings.projects.actions.runIn.label": "Ejecutar en",
+  "settings.projects.actions.runIn.info": "Elige dónde se ejecuta esta acción cuando se inicia desde un worktree vinculado.",
+  "settings.projects.actions.runIn.project": "Checkout principal",
+  "settings.projects.actions.runIn.worktree": "Worktree actual",
+  "settings.projects.actions.runIn.aria": "Directorio de trabajo de esta acción",
   "settings.projects.actions.field.autoOpenUrl": "Abrir URL automáticamente",
   "settings.projects.actions.field.autoOpenUrlForAria": "Abrir URL automáticamente para {title}",
   "settings.projects.actions.field.autoOpenUrlDescription": "Abrir URL desde la salida o la URL personalizada de abajo",
@@ -575,10 +579,6 @@ export const settingsDict = {
   "settings.behavior.page.systemPromptOptimization.enable": "Optimizar el tamaño del prompt del sistema",
   "settings.behavior.page.systemPromptOptimization.enableAria": "Optimizar el tamaño del prompt del sistema de OpenCode",
   "settings.behavior.page.systemPromptOptimization.info": "Reduce el prompt del sistema aproximadamente un 40 % para los agentes build y plan. Los demás agentes no cambian. Puede eliminar definiciones personalizadas que sobrescriban build o plan, así que no lo actives en esos flujos de trabajo. El cambio se aplica al reiniciar OpenCode.",
-  "settings.behavior.page.section.worktrees": "Worktrees",
-  "settings.behavior.page.worktreeFetchSource.enable": "Obtener cambios del remoto antes de crear worktrees",
-  "settings.behavior.page.worktreeFetchSource.enableAria": "Obtener cambios del repositorio remoto antes de crear worktrees",
-  "settings.behavior.page.worktreeFetchSource.info": "Los nuevos worktrees se crean a partir del estado remoto obtenido de la rama actual en lugar del checkout local, por lo que no quedan obsoletos. La creación usa el estado local si el remoto no está accesible.",
   "settings.behavior.page.systemPromptOptimization.restarting": "Reiniciando OpenCode para aplicar la optimización del prompt del sistema…",
   "settings.behavior.page.field.systemPromptPlaceholder": "Eres un asistente de IA útil...\n\nUsa este espacio para definir reglas absolutas sobre cómo la IA debe comportarse en todas las sesiones y proveedores.",
   "settings.behavior.page.section.responseStyle": "Estilo de respuesta",
@@ -2238,5 +2238,6 @@ export const settingsDict = {
   "settings.openchamber.visual.option.followUpBehavior.steer.label": "Steer",
   "settings.openchamber.visual.option.followUpBehavior.queue.label": "Queue",
   ...linearIntegrationI18n.es,
-  ...thirdPartyIntegrationI18n.es,
+  'settings.page.integrations.title': 'Integraciones',
+  'settings.page.integrations.description': 'Conecta GitHub y Linear para que OpenChamber pueda trabajar con tus issues y pull requests.',
 } as const;

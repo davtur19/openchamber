@@ -1,5 +1,4 @@
 import { linearIntegrationI18n } from './linear-integration.i18n';
-import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 export const settingsDict = {
   'settings.providers.page.openCodeGo.title': 'Відстеження використання OpenCode Go',
   'settings.providers.page.openCodeGo.description': 'Підключіть панель OpenCode Go, щоб бачити ковзну, тижневу та місячну квоту.',
@@ -439,6 +438,11 @@ export const settingsDict = {
   "settings.projects.actions.field.actionNamePlaceholder": "Назва дії",
   "settings.projects.actions.field.command": "Команда",
   "settings.projects.actions.field.commandPlaceholder": "напр. bun run lint",
+  "settings.projects.actions.runIn.label": "Запускати в",
+  "settings.projects.actions.runIn.info": "Виберіть, де запускати цю дію, коли її запущено з пов'язаного worktree.",
+  "settings.projects.actions.runIn.project": "Батьківський checkout",
+  "settings.projects.actions.runIn.worktree": "Поточний worktree",
+  "settings.projects.actions.runIn.aria": "Робоча тека для цієї дії",
   "settings.projects.actions.field.autoOpenUrl": "Автоматичне відкриття URL",
   "settings.projects.actions.field.autoOpenUrlForAria": "Автоматичне відкриття URL для {title}",
   "settings.projects.actions.field.autoOpenUrlDescription": "Відкрити URL із виведення або власний URL нижче",
@@ -575,10 +579,6 @@ export const settingsDict = {
   "settings.behavior.page.systemPromptOptimization.enable": "Оптимізувати розмір системного промпту",
   "settings.behavior.page.systemPromptOptimization.enableAria": "Оптимізувати розмір системного промпту OpenCode",
   "settings.behavior.page.systemPromptOptimization.info": "Зменшує системний промпт орієнтовно на 40% для агентів build і plan. Інші агенти не змінюються. Це може видалити власні визначення, які перевизначають build або plan, тому не вмикайте цю функцію для таких робочих процесів. Зміна застосовується після перезапуску OpenCode.",
-  "settings.behavior.page.section.worktrees": "Worktree",
-  "settings.behavior.page.worktreeFetchSource.enable": "Отримувати зміни з віддаленого перед створенням worktree",
-  "settings.behavior.page.worktreeFetchSource.enableAria": "Отримати зміни з віддаленого репозиторію перед створенням worktree",
-  "settings.behavior.page.worktreeFetchSource.info": "Нові worktree створюються з отриманого віддаленого стану поточної гілки, а не з локального checkout, тому не є застарілими. Якщо віддалений репозиторій недоступний, використовується локальний стан.",
   "settings.behavior.page.systemPromptOptimization.restarting": "Перезапуск OpenCode для застосування оптимізації системного промпту…",
   "settings.behavior.page.field.systemPromptPlaceholder": "Ви — корисний AI-асистент...\n\nВикористовуйте цей простір для визначення абсолютних правил поведінки AI для всіх сесій та провайдерів.",
   "settings.behavior.page.section.responseStyle": "Стиль відповіді",
@@ -2238,5 +2238,6 @@ export const settingsDict = {
   "settings.openchamber.visual.option.followUpBehavior.steer.label": "Steer",
   "settings.openchamber.visual.option.followUpBehavior.queue.label": "Queue",
   ...linearIntegrationI18n.uk,
-  ...thirdPartyIntegrationI18n.uk,
+  'settings.page.integrations.title': 'Інтеграції',
+  'settings.page.integrations.description': 'Підключіть GitHub і Linear, щоб OpenChamber міг працювати з вашими задачами та pull request-ами.',
 } as const;

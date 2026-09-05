@@ -1,10 +1,14 @@
-import { toast } from '@/components/ui';
-import { getGitBranches, getGitStatus, gitFetch } from '@/lib/gitApi';
-import { formatMessage, useI18nStore } from '@/lib/i18n';
+import { checkIsGitRepository, getGitBranches, getGitStatus } from '@/lib/gitApi';
 import type { CreateWorktreeArgs, ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { createWorktree } from '@/lib/worktrees/worktreeManager';
 import { getRootBranch, resolveProjectRoot } from '@/lib/worktrees/worktreeStatus';
-import { useConfigStore } from '@/stores/useConfigStore';
+
+export class WorktreeRequiresGitRepositoryError extends Error {
+  constructor() {
+    super('Worktree creation requires a Git repository');
+    this.name = 'WorktreeRequiresGitRepositoryError';
+  }
+}
 
 const parseTrackingRef = (tracking: string | null | undefined): { remote: string; branch: string } | null => {
   const value = String(tracking || '').trim().replace(/^remotes\//, '');
@@ -122,17 +126,13 @@ const normalizeLocalBranchName = (value: string): string => {
     .replace(/^refs\/heads\//, '');
 };
 
-export const withWorktreeFetchedStartRef = async (
+export const withWorktreeRemoteStartRef = async (
   project: ProjectRef,
   args: CreateWorktreeArgs
 ): Promise<CreateWorktreeArgs> => {
   if (args.mode === 'existing') {
     return args;
   }
-  if (useConfigStore.getState().settingsWorktreeFetchSource === false) {
-    return args;
-  }
-
   const rawStartRef = String(args.startRef || '').trim();
   if (rawStartRef && rawStartRef !== 'HEAD') {
     if (REMOTE_START_REF_PATTERN.test(rawStartRef) || COMMIT_SHA_PATTERN.test(rawStartRef)) {
@@ -161,22 +161,6 @@ export const withWorktreeFetchedStartRef = async (
     return args;
   }
 
-  const fallbackToLocalSource = () => {
-    toast.warning(
-      formatMessage(useI18nStore.getState().dictionary, 'session.newWorktree.toast.fetchSourceFailed'),
-    );
-    return args;
-  };
-
-  try {
-    const fetchResult = await gitFetch(projectDirectory, { remote: tracking.remote, branch: tracking.branch });
-    if (fetchResult.success !== true) {
-      return fallbackToLocalSource();
-    }
-  } catch {
-    return fallbackToLocalSource();
-  }
-
   return { ...args, startRef: `remotes/${tracking.remote}/${tracking.branch}` };
 };
 
@@ -185,7 +169,11 @@ export const createWorktreeWithDefaults = async (
   args: CreateWorktreeArgs,
   options?: { resolvedRootTrackingRemote?: string | null }
 ) => {
-  const fetchedArgs = await withWorktreeFetchedStartRef(project, args);
-  const resolvedArgs = await withWorktreeUpstreamDefaults(project.path, fetchedArgs, options);
+  const isGitRepository = await checkIsGitRepository(project.path);
+  if (!isGitRepository) {
+    throw new WorktreeRequiresGitRepositoryError();
+  }
+  const remoteArgs = await withWorktreeRemoteStartRef(project, args);
+  const resolvedArgs = await withWorktreeUpstreamDefaults(project.path, remoteArgs, options);
   return createWorktree(project, resolvedArgs);
 };

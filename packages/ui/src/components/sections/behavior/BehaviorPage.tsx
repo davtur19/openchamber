@@ -1,4 +1,5 @@
 import React from 'react';
+import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui';
@@ -20,7 +21,6 @@ import {
 } from '@/lib/responseStyle';
 import type { DesktopSettings } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { useConfigStore } from '@/stores/useConfigStore';
 import { noteDeferredRestartFromPayload, recordDeferredOpenCodeRestart } from '@/lib/opencode/deferredRestart';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import {
@@ -31,7 +31,11 @@ import {
   SETTINGS_SELECT_SIZE,
 } from '@/components/sections/shared/SettingsSection';
 
-const AGENTS_MD_PATH = '~/.config/opencode/AGENTS.md';
+const agentsMdResponseSchema = z.object({
+  content: z.string(),
+  exists: z.boolean(),
+  path: z.string().min(1).optional(),
+});
 
 const readApiError = async (response: Response, fallback: string) => {
   const data = await response.json().catch(() => null) as { error?: unknown } | null;
@@ -47,7 +51,6 @@ type ResponseStyleValue = ResponseStylePreset | 'custom';
 type BehaviorSettingsState = {
   prompt: string;
   optimizeSystemPrompt: boolean;
-  worktreeFetchSource: boolean;
   responseStyleEnabled: boolean;
   responseStylePreset: ResponseStyleValue;
   responseStyleCustomInstructions: string;
@@ -56,7 +59,6 @@ type BehaviorSettingsState = {
 const DEFAULT_BEHAVIOR_SETTINGS: BehaviorSettingsState = {
   prompt: '',
   optimizeSystemPrompt: false,
-  worktreeFetchSource: true,
   responseStyleEnabled: false,
   responseStylePreset: 'concise',
   responseStyleCustomInstructions: '',
@@ -106,10 +108,9 @@ const saveBehaviorSetting = async (settings: Partial<DesktopSettings>, fallbackE
 export const BehaviorPage: React.FC = () => {
   const { t } = useI18n();
   const isVSCode = useIsVSCodeRuntime();
-  const setSettingsWorktreeFetchSource = useConfigStore((state) => state.setSettingsWorktreeFetchSource);
   const [prompt, setPrompt] = React.useState('');
+  const [agentsMdPath, setAgentsMdPath] = React.useState('AGENTS.md');
   const [optimizeSystemPrompt, setOptimizeSystemPrompt] = React.useState(false);
-  const [worktreeFetchSource, setWorktreeFetchSource] = React.useState(DEFAULT_BEHAVIOR_SETTINGS.worktreeFetchSource);
   const [responseStyleEnabled, setResponseStyleEnabled] = React.useState(DEFAULT_BEHAVIOR_SETTINGS.responseStyleEnabled);
   const [responseStylePreset, setResponseStylePreset] = React.useState<ResponseStyleValue>(DEFAULT_BEHAVIOR_SETTINGS.responseStylePreset);
   const [responseStyleCustomInstructions, setResponseStyleCustomInstructions] = React.useState(DEFAULT_BEHAVIOR_SETTINGS.responseStyleCustomInstructions);
@@ -148,24 +149,22 @@ export const BehaviorPage: React.FC = () => {
           nextSettings = {
             ...nextSettings,
             optimizeSystemPrompt: data.optimizeSystemPrompt === true,
-            worktreeFetchSource: data.worktreeFetchSource !== false,
             responseStyleEnabled: data.responseStyleEnabled === true,
             responseStylePreset: sanitizeResponseStylePreset(data.responseStylePreset),
             responseStyleCustomInstructions: typeof data.responseStyleCustomInstructions === 'string'
               ? data.responseStyleCustomInstructions
               : '',
           };
-          if (typeof data.worktreeFetchSource === 'boolean') {
-            setSettingsWorktreeFetchSource(data.worktreeFetchSource);
-          }
           if (typeof data.globalBehaviorPrompt === 'string') {
             nextSettings = { ...nextSettings, prompt: data.globalBehaviorPrompt };
           }
         }
 
-        if (!nextSettings.prompt.trim() && agentsMdRes.ok) {
-          const agentsData = await agentsMdRes.json();
-          if (typeof agentsData.content === 'string') {
+        if (agentsMdRes.ok) {
+          const agentsData = agentsMdResponseSchema.parse(await agentsMdRes.json());
+          if (abort.signal.aborted) return;
+          setAgentsMdPath(agentsData.path ?? 'AGENTS.md');
+          if (!nextSettings.prompt.trim()) {
             nextSettings = { ...nextSettings, prompt: agentsData.content };
           }
         }
@@ -173,7 +172,6 @@ export const BehaviorPage: React.FC = () => {
         setPrompt(nextSettings.prompt);
         setOptimizeSystemPrompt(nextSettings.optimizeSystemPrompt);
         setInitialOptimizeSystemPrompt(nextSettings.optimizeSystemPrompt);
-        setWorktreeFetchSource(nextSettings.worktreeFetchSource);
         setResponseStyleEnabled(nextSettings.responseStyleEnabled);
         setResponseStylePreset(nextSettings.responseStylePreset);
         setResponseStyleCustomInstructions(nextSettings.responseStyleCustomInstructions);
@@ -194,7 +192,7 @@ export const BehaviorPage: React.FC = () => {
 
     void load();
     return () => abort.abort();
-  }, [setSettingsWorktreeFetchSource]);
+  }, []);
 
   React.useEffect(() => {
     if (isLoading) return;
@@ -275,21 +273,6 @@ export const BehaviorPage: React.FC = () => {
     }
   };
 
-  const handleWorktreeFetchSourceChange = (enabled: boolean) => {
-    const previous = worktreeFetchSource;
-    setWorktreeFetchSource(enabled);
-    setSettingsWorktreeFetchSource(enabled);
-    void saveBehaviorSetting(
-      { worktreeFetchSource: enabled },
-      t('settings.behavior.page.toast.saveFailed'),
-    ).catch((error) => {
-      setWorktreeFetchSource(previous);
-      setSettingsWorktreeFetchSource(previous);
-      const message = error instanceof Error ? error.message : t('settings.behavior.page.toast.saveFailed');
-      toast.error(message);
-    });
-  };
-
   const handleSavePromptOptimization = async () => {
     setIsApplyingPromptOptimization(true);
     try {
@@ -344,21 +327,6 @@ export const BehaviorPage: React.FC = () => {
       )}
 
       <SettingsSection
-        title={t('settings.behavior.page.section.worktrees')}
-        settingsItem="behavior.worktree-fetch-source"
-        contentClassName="space-y-3"
-      >
-        <SettingsCheckboxRow
-          checked={worktreeFetchSource}
-          onChange={handleWorktreeFetchSourceChange}
-          disabled={isLoading}
-          label={t('settings.behavior.page.worktreeFetchSource.enable')}
-          ariaLabel={t('settings.behavior.page.worktreeFetchSource.enableAria')}
-          info={t('settings.behavior.page.worktreeFetchSource.info')}
-        />
-      </SettingsSection>
-
-      <SettingsSection
         title={t('settings.behavior.page.section.systemPrompt')}
         info={(
           <div className="space-y-1">
@@ -366,7 +334,7 @@ export const BehaviorPage: React.FC = () => {
               {t('settings.behavior.page.warning.title')}
             </p>
             <p>
-              {t('settings.behavior.page.warning.description', { path: AGENTS_MD_PATH })}
+              {t('settings.behavior.page.warning.description', { path: agentsMdPath })}
             </p>
           </div>
         )}

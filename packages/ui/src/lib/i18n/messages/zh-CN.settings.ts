@@ -1,5 +1,4 @@
 import { linearIntegrationI18n } from './linear-integration.i18n';
-import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 export const settingsDict = {
   'settings.providers.page.openCodeGo.title': 'OpenCode Go 用量跟踪',
   'settings.providers.page.openCodeGo.description': '连接 OpenCode Go 控制面板以显示滚动、每周和每月配额。',
@@ -439,6 +438,11 @@ export const settingsDict = {
   'settings.projects.actions.field.actionNamePlaceholder': '操作名称',
   'settings.projects.actions.field.command': '命令',
   'settings.projects.actions.field.commandPlaceholder': '例如 bun run lint',
+  'settings.projects.actions.runIn.label': '运行位置',
+  'settings.projects.actions.runIn.info': '选择从关联 worktree 启动时此操作的运行位置。',
+  'settings.projects.actions.runIn.project': '父检出目录',
+  'settings.projects.actions.runIn.worktree': '当前 worktree',
+  'settings.projects.actions.runIn.aria': '此操作的工作目录',
   'settings.projects.actions.field.autoOpenUrl': '自动打开 URL',
   'settings.projects.actions.field.autoOpenUrlForAria': '为 {title} 自动打开 URL',
   'settings.projects.actions.field.autoOpenUrlDescription': '从输出中打开 URL，或使用下面的自定义 URL',
@@ -575,10 +579,6 @@ export const settingsDict = {
   'settings.behavior.page.systemPromptOptimization.enable': '优化系统提示词大小',
   'settings.behavior.page.systemPromptOptimization.enableAria': '优化 OpenCode 系统提示词大小',
   'settings.behavior.page.systemPromptOptimization.info': '预计可将 build 和 plan 代理的系统提示词缩减约 40%，其他代理不会改变。这可能会移除覆盖 build 或 plan 的自定义定义，因此此类工作流请勿启用。重启 OpenCode 后应用更改。',
-  'settings.behavior.page.section.worktrees': '工作树',
-  'settings.behavior.page.worktreeFetchSource.enable': '创建工作树前先从远程获取',
-  'settings.behavior.page.worktreeFetchSource.enableAria': '创建工作树前先从远程仓库获取变更',
-  'settings.behavior.page.worktreeFetchSource.info': '新工作树基于当前分支从远程获取的状态创建，而不是本地检出，因此不会滞后。远程不可用时将回退为本地状态。',
   'settings.behavior.page.systemPromptOptimization.restarting': '正在重启 OpenCode 以应用系统提示词优化…',
   'settings.behavior.page.field.systemPromptPlaceholder': '你是一个有帮助的 AI 助手...\n\n使用此空间定义 AI 在所有会话和提供商中的绝对行为规则。',
   'settings.behavior.page.section.responseStyle': '回复风格',
@@ -2238,5 +2238,6 @@ export const settingsDict = {
   'settings.openchamber.visual.option.followUpBehavior.steer.label': 'Steer',
   'settings.openchamber.visual.option.followUpBehavior.queue.label': 'Queue',
   ...linearIntegrationI18n['zh-CN'],
-  ...thirdPartyIntegrationI18n['zh-CN'],
+  'settings.page.integrations.title': '集成',
+  'settings.page.integrations.description': '连接 GitHub 和 Linear，让 OpenChamber 可以处理你的 issue 和拉取请求。',
 } as const;

@@ -4,6 +4,7 @@ import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
 export const dict: Record<I18nKey, string> = {
+  'sessions.sidebar.projectAction.active': 'Ação do projeto em execução',
   ...settingsDict,
   ...linearIssuePickerI18n['pt-BR'],
   ...linearPanelI18n['pt-BR'],
@@ -697,8 +698,9 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.sessionDialogs.directory.errorOpenDescription": "O desktop não pôde conceder acesso aos arquivos.",
   "sessions.sidebar.sessionDialogs.directory.errorAddProjectTitle": "Não foi possível adicionar projeto",
   "sessions.sidebar.sessionDialogs.directory.errorAddProjectDescription": "Selecione uma caminho de diretório válida.",
-  "sessions.sidebar.sessionDialogs.worktree.errorRemoveTitle": "Não foi possível excluir worktree",
-  "sessions.sidebar.sessionDialogs.worktree.removedTitle": "Worktree excluído",
+  "sessions.sidebar.sessionDialogs.worktree.errorRemoveTitle": "Não foi possível excluir o worktree “{name}”",
+  "sessions.sidebar.sessionDialogs.worktree.removingTitle": "Excluindo o worktree “{name}”…",
+  "sessions.sidebar.sessionDialogs.worktree.removedTitle": "Worktree “{name}” excluído",
   "sessions.sidebar.sessionDialogs.worktree.removed": "Worktree excluído.",
   "sessions.sidebar.sessionDialogs.worktree.removedWithRemote": "Worktree e branch remota excluídos.",
   "sessions.sidebar.sessionDialogs.worktree.attachedArchived": "Worktree adjunto archivado.",
@@ -1618,7 +1620,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.autoReview.reviewSessionLabel': 'Sessão de revisão',
   'chat.autoReview.actions.open': 'Abrir',
   'chat.autoReview.actions.stop': 'Parar',
-  'chat.draftDirtyNotice.tooltip': 'Esta branch tem arquivos sem commit.\nA nova sessão os verá. Um commit ou um worktree os mantém separados.',
+  'chat.draftDirtyNotice.tooltip': 'Você tem alterações sem commit nesta branch.\nUma nova sessão pode entrar em conflito com elas. Talvez seja melhor fazer commit delas primeiro ou usar outro worktree.',
   'chat.draftDirtyNotice.indicatorAria': 'Alterações sem commit neste diretório',
   "diffView.hunk.label": "Trechos",
   "diffView.hunk.stage": "Preparar",
@@ -2185,6 +2187,8 @@ export const dict: Record<I18nKey, string> = {
   "chat.queuedMessage.send": "send",
   "chat.queuedMessage.removeAria": "Excluir da fila",
   "chat.queuedMessage.reorderAria": "Arraste para reordenar",
+  "chat.queuedMessage.toast.queueFailed": "Não foi possível enfileirar a mensagem. Ela voltou para o campo de texto.",
+  "chat.queuedMessage.toast.takeFailed": "Não foi possível carregar a mensagem da fila. Tente novamente.",
   "chat.container.returnToParent.aria": "Voltar para a sessão principal",
   "chat.container.returnToParent.titleNamed": "Voltar para: {title}",
   "chat.container.returnToParent.title": "Voltar para a sessão principal",

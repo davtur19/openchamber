@@ -1,5 +1,4 @@
 import { linearIntegrationI18n } from './linear-integration.i18n';
-import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 export const settingsDict = {
   'settings.providers.page.openCodeGo.title': 'OpenCode Go 사용량 추적',
   'settings.providers.page.openCodeGo.description': 'OpenCode Go 대시보드를 연결하여 롤링, 주간 및 월간 할당량을 표시합니다.',
@@ -439,6 +438,11 @@ export const settingsDict = {
   'settings.projects.actions.field.actionNamePlaceholder': '작업 이름',
   'settings.projects.actions.field.command': '명령어',
   'settings.projects.actions.field.commandPlaceholder': '예: bun run lint',
+  'settings.projects.actions.runIn.label': '실행 위치',
+  'settings.projects.actions.runIn.info': '연결된 워크트리에서 시작할 때 이 작업을 실행할 위치를 선택합니다.',
+  'settings.projects.actions.runIn.project': '상위 체크아웃',
+  'settings.projects.actions.runIn.worktree': '현재 워크트리',
+  'settings.projects.actions.runIn.aria': '이 작업의 작업 디렉터리',
   'settings.projects.actions.field.autoOpenUrl': 'URL 자동 열기',
   'settings.projects.actions.field.autoOpenUrlForAria': '{title}의 URL 자동 열기',
   'settings.projects.actions.field.autoOpenUrlDescription': '명령 출력에서 감지한 URL 또는 아래의 사용자 정의 URL을 엽니다',
@@ -575,10 +579,6 @@ export const settingsDict = {
   'settings.behavior.page.systemPromptOptimization.enable': '시스템 프롬프트 크기 최적화',
   'settings.behavior.page.systemPromptOptimization.enableAria': 'OpenCode 시스템 프롬프트 크기 최적화',
   'settings.behavior.page.systemPromptOptimization.info': 'build 및 plan 에이전트의 시스템 프롬프트를 약 40% 줄입니다. 다른 에이전트는 변경되지 않습니다. build 또는 plan을 재정의하는 사용자 지정 정의가 제거될 수 있으므로 이러한 워크플로에서는 활성화하지 마세요. OpenCode를 다시 시작하면 변경 사항이 적용됩니다.',
-  'settings.behavior.page.section.worktrees': '워크트리',
-  'settings.behavior.page.worktreeFetchSource.enable': '워크트리를 만들기 전에 원격에서 가져오기',
-  'settings.behavior.page.worktreeFetchSource.enableAria': '워크트리를 만들기 전에 원격에서 변경 사항 가져오기',
-  'settings.behavior.page.worktreeFetchSource.info': '새 워크트리는 로컬 체크아웃 대신 현재 브랜치의 원격 상태를 가져와서 만들어지므로 최신 상태를 유지합니다. 원격에 접근할 수 없으면 로컬 상태로 만듭니다.',
   'settings.behavior.page.systemPromptOptimization.restarting': '시스템 프롬프트 최적화를 적용하기 위해 OpenCode를 다시 시작하는 중…',
   'settings.behavior.page.field.systemPromptPlaceholder': '당신은 유용한 AI 어시스턴트입니다...\n\n모든 세션과 공급자에서 AI가 어떻게 행동해야 하는지에 대한 절대적인 규칙을 정의할 수 있습니다.',
   'settings.behavior.page.section.responseStyle': '응답 스타일',
@@ -2238,5 +2238,6 @@ export const settingsDict = {
   'settings.openchamber.visual.option.followUpBehavior.steer.label': 'Steer',
   'settings.openchamber.visual.option.followUpBehavior.queue.label': 'Queue',
   ...linearIntegrationI18n.ko,
-  ...thirdPartyIntegrationI18n.ko,
+  'settings.page.integrations.title': '통합',
+  'settings.page.integrations.description': 'GitHub와 Linear를 연결하면 OpenChamber가 이슈와 풀 리퀘스트를 다룰 수 있습니다.',
 } as const;

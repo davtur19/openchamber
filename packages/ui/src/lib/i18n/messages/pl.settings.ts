@@ -1,5 +1,4 @@
 import { linearIntegrationI18n } from './linear-integration.i18n';
-import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 export const settingsDict = {
   'settings.providers.page.openCodeGo.title': 'Śledzenie użycia OpenCode Go',
   'settings.providers.page.openCodeGo.description': 'Połącz panel OpenCode Go, aby wyświetlać limity kroczące, tygodniowe i miesięczne.',
@@ -160,10 +159,6 @@ export const settingsDict = {
   'settings.behavior.page.systemPromptOptimization.enable': 'Optymalizuj rozmiar promptu systemowego',
   'settings.behavior.page.systemPromptOptimization.enableAria': 'Optymalizuj rozmiar promptu systemowego OpenCode',
   'settings.behavior.page.systemPromptOptimization.info': 'Zmniejsza prompt systemowy o około 40% dla agentów build i plan. Inni agenci pozostają bez zmian. Może to usunąć niestandardowe definicje zastępujące build lub plan, dlatego nie włączaj tej opcji w takich przepływach pracy. Zmiana zostanie zastosowana po ponownym uruchomieniu OpenCode.',
-  'settings.behavior.page.section.worktrees': 'Drzewa pracy',
-  'settings.behavior.page.worktreeFetchSource.enable': 'Pobierz zmiany ze zdalnego przed utworzeniem drzew pracy',
-  'settings.behavior.page.worktreeFetchSource.enableAria': 'Pobierz zmiany ze zdalnego repozytorium przed utworzeniem drzew pracy',
-  'settings.behavior.page.worktreeFetchSource.info': 'Nowe drzewa pracy powstają z pobranego zdalnego stanu bieżącej gałęzi, a nie z lokalnej kopii roboczej, dzięki czemu nie są nieaktualne. Jeśli zdalne repozytorium jest niedostępne, używany jest stan lokalny.',
   'settings.behavior.page.systemPromptOptimization.restarting': 'Ponowne uruchamianie OpenCode w celu zastosowania optymalizacji promptu systemowego…',
   'settings.behavior.page.title': 'Zachowanie',
   'settings.behavior.page.toast.saveFailed': 'Nie udało się zapisać zachowania',
@@ -1373,6 +1368,11 @@ export const settingsDict = {
   'settings.projects.actions.field.autoOpenUrlForAria': 'Automatycznie otwieraj URL dla {title}',
   'settings.projects.actions.field.command': 'Polecenie',
   'settings.projects.actions.field.commandPlaceholder': 'np. bun run lint',
+  'settings.projects.actions.runIn.label': 'Uruchom w',
+  'settings.projects.actions.runIn.info': 'Wybierz, gdzie uruchamiać tę akcję po uruchomieniu z połączonego worktree.',
+  'settings.projects.actions.runIn.project': 'Nadrzędny checkout',
+  'settings.projects.actions.runIn.worktree': 'Bieżący worktree',
+  'settings.projects.actions.runIn.aria': 'Katalog roboczy tej akcji',
   'settings.projects.actions.field.desktopSshForward': 'Przekierowanie SSH pulpitu',
   'settings.projects.actions.field.iconAria': 'Ikona {icon}',
   'settings.projects.actions.field.overrideUrlPlaceholder': 'Nadpisz URL (opcjonalnie)',
@@ -2231,5 +2231,6 @@ export const settingsDict = {
   'settings.openchamber.visual.option.followUpBehavior.steer.label': 'Steer',
   'settings.openchamber.visual.option.followUpBehavior.queue.label': 'Queue',
   ...linearIntegrationI18n.pl,
-  ...thirdPartyIntegrationI18n.pl,
+  'settings.page.integrations.title': 'Integracje',
+  'settings.page.integrations.description': 'Połącz GitHub i Linear, aby OpenChamber mógł pracować z Twoimi issue i pull requestami.',
 };

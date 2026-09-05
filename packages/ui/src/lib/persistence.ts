@@ -15,6 +15,13 @@ import { setFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
 import { loadAppearancePreferences, applyAppearancePreferences } from '@/lib/appearancePersistence';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
+import {
+  DEFAULT_INPUT_HISTORY_LIMIT,
+  DEFAULT_INPUT_HISTORY_SCOPE,
+  isInputHistoryLimit,
+  isInputHistoryScope,
+} from '@/lib/inputHistoryScope';
+import { useInputHistoryStore } from '@/stores/useInputHistoryStore';
 import { normalizeMobileKeyboardMode, setStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isCapacitorApp } from '@/lib/platform';
@@ -76,6 +83,8 @@ const persistRuntimeSettingsMirror = (settings: DesktopSettings, runtimeKey: str
     pwaAppName: settings.pwaAppName,
     mobileKeyboardMode: settings.mobileKeyboardMode,
     openCodeUpdateToastDismissedVersion: settings.openCodeUpdateToastDismissedVersion,
+    inputHistoryScope: settings.inputHistoryScope,
+    inputHistoryLimit: settings.inputHistoryLimit,
     dictationEnabled: settings.dictationEnabled,
     sttProvider: settings.sttProvider,
     sttServerUrl: settings.sttServerUrl,
@@ -576,6 +585,8 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     summaryLength: defaults.summaryLength,
     maxLastMessageLength: defaults.maxLastMessageLength,
     inputSpellcheckEnabled: defaults.inputSpellcheckEnabled,
+    enterToSend: defaults.enterToSend,
+    enterToSendConfigured: defaults.enterToSendConfigured,
     showOpenCodeUpdateNotifications: defaults.showOpenCodeUpdateNotifications,
     agentControlToolEnabled: defaults.agentControlToolEnabled,
     agentWebToolEnabled: defaults.agentWebToolEnabled,
@@ -595,6 +606,8 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     userMessageRenderingMode: defaults.userMessageRenderingMode,
     collapsibleUserMessages: defaults.collapsibleUserMessages,
     messageStreamTransport: 'auto',
+    inputHistoryScope: DEFAULT_INPUT_HISTORY_SCOPE,
+    inputHistoryLimit: DEFAULT_INPUT_HISTORY_LIMIT,
     stickyUserHeader: defaults.stickyUserHeader,
     promptNavigatorEnabled: defaults.promptNavigatorEnabled,
     wideChatLayoutEnabled: defaults.wideChatLayoutEnabled,
@@ -643,6 +656,7 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
     ? window.__zustand_config_store__ ?? null
     : null;
   const queueStore = useMessageQueueStore.getState();
+  const inputHistoryStore = useInputHistoryStore.getState();
 
   if (typeof settings.workStatusPanelEnabled === 'boolean'
     && settings.workStatusPanelEnabled !== store.workStatusPanelEnabled) {
@@ -752,6 +766,16 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
   if (typeof settings.inputSpellcheckEnabled === 'boolean' && settings.inputSpellcheckEnabled !== store.inputSpellcheckEnabled) {
     store.setInputSpellcheckEnabled(settings.inputSpellcheckEnabled);
+  }
+  if (settings.enterToSend === true || settings.enterToSend === false) {
+    if (settings.enterToSend !== store.enterToSend) {
+      store.setEnterToSend(settings.enterToSend);
+    }
+  }
+  if (settings.enterToSendConfigured === true || settings.enterToSendConfigured === false) {
+    if (settings.enterToSendConfigured !== store.enterToSendConfigured) {
+      store.setEnterToSendConfigured(settings.enterToSendConfigured);
+    }
   }
   if (
     typeof settings.showOpenCodeUpdateNotifications === 'boolean'
@@ -863,6 +887,16 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
     if (configStore && settings.messageStreamTransport !== configStore.settingsMessageStreamTransport) {
       configStore.setSettingsMessageStreamTransport(settings.messageStreamTransport);
     }
+  }
+  if (
+    typeof settings.inputHistoryScope === 'string'
+    && isInputHistoryScope(settings.inputHistoryScope)
+    && settings.inputHistoryScope !== inputHistoryStore.scope
+  ) {
+    inputHistoryStore.applyScope(settings.inputHistoryScope);
+  }
+  if (isInputHistoryLimit(settings.inputHistoryLimit) && settings.inputHistoryLimit !== inputHistoryStore.entryLimit) {
+    inputHistoryStore.applyEntryLimit(settings.inputHistoryLimit);
   }
   if (typeof settings.stickyUserHeader === 'boolean' && settings.stickyUserHeader !== store.stickyUserHeader) {
     store.setStickyUserHeader(settings.stickyUserHeader);
@@ -1053,14 +1087,11 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
       store.setGitChangesViewMode(settings.gitChangesViewMode);
     }
   }
-  switch (settings.toolJsonViewMode) {
-    case 'summary':
-    case 'formatted':
-    case 'raw':
-      if (settings.toolJsonViewMode !== store.toolJsonViewMode) {
-        store.setToolJsonViewMode(settings.toolJsonViewMode);
-      }
-      break;
+  if (typeof settings.toolJsonViewMode === 'string'
+    && (settings.toolJsonViewMode === 'summary' || settings.toolJsonViewMode === 'formatted' || settings.toolJsonViewMode === 'raw')) {
+    if (settings.toolJsonViewMode !== store.toolJsonViewMode) {
+      store.setToolJsonViewMode(settings.toolJsonViewMode);
+    }
   }
   if (typeof settings.directoryShowHidden === 'boolean') {
     setDirectoryShowHidden(settings.directoryShowHidden, { persist: false });
@@ -1198,6 +1229,12 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.streamingAutoFollowEnabled === 'boolean') {
     result.streamingAutoFollowEnabled = candidate.streamingAutoFollowEnabled;
+  }
+  if (typeof candidate.inputHistoryScope === 'string' && isInputHistoryScope(candidate.inputHistoryScope)) {
+    result.inputHistoryScope = candidate.inputHistoryScope;
+  }
+  if (typeof candidate.inputHistoryLimit === 'number' && isInputHistoryLimit(candidate.inputHistoryLimit)) {
+    result.inputHistoryLimit = candidate.inputHistoryLimit;
   }
   if (typeof candidate.sessionRecapEnabled === 'boolean') {
     result.sessionRecapEnabled = candidate.sessionRecapEnabled;
@@ -1471,6 +1508,12 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   if (typeof candidate.inputSpellcheckEnabled === 'boolean') {
     result.inputSpellcheckEnabled = candidate.inputSpellcheckEnabled;
   }
+  if (candidate.enterToSend === true || candidate.enterToSend === false) {
+    result.enterToSend = candidate.enterToSend;
+  }
+  if (candidate.enterToSendConfigured === true || candidate.enterToSendConfigured === false) {
+    result.enterToSendConfigured = candidate.enterToSendConfigured;
+  }
   if (typeof candidate.showOpenCodeUpdateNotifications === 'boolean') {
     result.showOpenCodeUpdateNotifications = candidate.showOpenCodeUpdateNotifications;
   }
@@ -1643,12 +1686,11 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   ) {
     result.gitChangesViewMode = candidate.gitChangesViewMode;
   }
-  switch (candidate.toolJsonViewMode) {
-    case 'summary':
-    case 'formatted':
-    case 'raw':
-      result.toolJsonViewMode = candidate.toolJsonViewMode;
-      break;
+  if (
+    typeof candidate.toolJsonViewMode === 'string'
+    && (candidate.toolJsonViewMode === 'summary' || candidate.toolJsonViewMode === 'formatted' || candidate.toolJsonViewMode === 'raw')
+  ) {
+    result.toolJsonViewMode = candidate.toolJsonViewMode;
   }
   if (typeof candidate.directoryShowHidden === 'boolean') {
     result.directoryShowHidden = candidate.directoryShowHidden;

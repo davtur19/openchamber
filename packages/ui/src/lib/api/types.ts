@@ -655,6 +655,7 @@ interface FileReadOptions {
   outsideFileGrant?: string;
   optional?: boolean;
   directory?: string;
+  fresh?: boolean;
 }
 
 export interface FilesAPI {
@@ -748,6 +749,7 @@ export interface SettingsPayload {
   shortcutOverrides?: Record<string, string>;
   diffLayoutPreference?: 'dynamic' | 'inline' | 'side-by-side';
   gitChangesViewMode?: 'flat' | 'tree';
+  toolJsonViewMode?: 'summary' | 'formatted' | 'raw';
   directoryShowHidden?: boolean;
   filesViewShowGitignored?: boolean;
   openInAppId?: string;

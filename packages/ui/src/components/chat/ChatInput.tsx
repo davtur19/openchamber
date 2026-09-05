@@ -3104,6 +3104,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onExpand={mobileShell.expand}
                         onApplySuggestion={applyAssistSuggestion}
                         onPrimaryAction={handlePrimaryAction}
+                        onQueueMessage={() => { void handleQueueMessage(); }}
                         onNewSession={handleMobileNewSession}
                         onPickLocalFiles={handlePickLocalFiles}
                         onOpenIssuePicker={openIssuePicker}

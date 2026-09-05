@@ -312,6 +312,11 @@ export const createSessionGoalRuntime = ({
   // existing callers/tests are unaffected. A setting value of 0 means
   // "unlimited" and should be translated to Infinity by the caller.
   getMaxAutoTurns = null,
+  // Optional live override for the file-backed objective read: async () =>
+  // number. Without it, readObjective() falls back to the static
+  // GOAL_OBJECTIVE_CHAR_LIMIT (5000), silently re-truncating an objective
+  // that was written with a higher, settings-driven limit.
+  getObjectiveCharLimit = null,
 }) => {
   const timers = new Map();
   const inflight = new Set();
@@ -526,7 +531,10 @@ export const createSessionGoalRuntime = ({
     // die just because a file went away.
     let effectiveObjective = goal.objective;
     if (goal.objectiveFile) {
-      const fileObjective = await readObjective(sessionId);
+      const objectiveCharLimit = typeof getObjectiveCharLimit === 'function'
+        ? await getObjectiveCharLimit().catch(() => GOAL_OBJECTIVE_CHAR_LIMIT)
+        : GOAL_OBJECTIVE_CHAR_LIMIT;
+      const fileObjective = await readObjective(sessionId, objectiveCharLimit);
       if (fileObjective) {
         effectiveObjective = fileObjective;
       } else if (!effectiveObjective) {

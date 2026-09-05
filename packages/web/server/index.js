@@ -794,6 +794,11 @@ const sessionGoalRuntime = createSessionGoalRuntime({
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 20;
     return value === 0 ? Infinity : value;
   },
+  getObjectiveCharLimit: async () => {
+    const settings = await readSettingsFromDiskMigrated().catch(() => ({}));
+    const value = settings?.sessionGoalObjectiveCharLimit;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 5000;
+  },
   emitGoalNotification: async ({ sessionId, directory, status, goal }) => {
     // The goal settle notification replaces the per-turn ready notifications
     // (suppressed while the goal is active) — so it obeys the same toggle.

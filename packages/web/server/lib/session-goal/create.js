@@ -14,8 +14,8 @@ export const buildGoalIntroText = (tokenBudget) => {
     + '\n</system-reminder>';
 };
 
-const fitObjective = async ({ objective, directory, sessionID, providerID, modelID, warn }) => {
-  if (objective.length <= GOAL_OBJECTIVE_CHAR_LIMIT) return objective;
+const fitObjective = async ({ objective, directory, sessionID, providerID, modelID, warn, charLimit = GOAL_OBJECTIVE_CHAR_LIMIT }) => {
+  if (objective.length <= charLimit) return objective;
 
   let distilled = null;
   try {
@@ -41,8 +41,8 @@ const fitObjective = async ({ objective, directory, sessionID, providerID, model
     warn('goal objective distillation failed', error);
   }
 
-  if (distilled) return distilled.slice(0, GOAL_OBJECTIVE_CHAR_LIMIT);
-  const half = Math.max(0, Math.floor((GOAL_OBJECTIVE_CHAR_LIMIT - TRIM_MARKER.length) / 2));
+  if (distilled) return distilled.slice(0, charLimit);
+  const half = Math.max(0, Math.floor((charLimit - TRIM_MARKER.length) / 2));
   return `${objective.slice(0, half)}${TRIM_MARKER}${objective.slice(-half)}`;
 };
 
@@ -56,6 +56,7 @@ export const createSessionGoal = async ({
   providerID,
   modelID,
   onWarning,
+  charLimit = GOAL_OBJECTIVE_CHAR_LIMIT,
 }) => {
   const warn = (message, error) => {
     if (typeof onWarning === 'function') {
@@ -71,12 +72,13 @@ export const createSessionGoal = async ({
     providerID,
     modelID,
     warn,
+    charLimit,
   });
   if (!objectiveText) throw new Error('goal objective is required');
 
   let objectiveFile = false;
   try {
-    await writeObjective(sessionID, objectiveText);
+    await writeObjective(sessionID, objectiveText, charLimit);
     objectiveFile = true;
   } catch (error) {
     warn('goal objective file write failed, falling back to inline', error);
@@ -85,7 +87,7 @@ export const createSessionGoal = async ({
   const now = Date.now();
   const goal = {
     id: `${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-    objective: objectiveFile ? '' : objectiveText.slice(0, GOAL_OBJECTIVE_CHAR_LIMIT),
+    objective: objectiveFile ? '' : objectiveText.slice(0, charLimit),
     objectiveFile,
     status: 'active',
     tokenBudget: tokenBudget || null,

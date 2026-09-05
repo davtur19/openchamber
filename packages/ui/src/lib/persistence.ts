@@ -555,6 +555,8 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     sessionGoalEnabled: defaults.sessionGoalEnabled,
     sessionGoalDefaultBudgetEnabled: defaults.sessionGoalDefaultBudgetEnabled,
     sessionGoalDefaultBudget: defaults.sessionGoalDefaultBudget,
+    sessionGoalObjectiveCharLimit: defaults.sessionGoalObjectiveCharLimit,
+    sessionGoalMaxAutoTurns: defaults.sessionGoalMaxAutoTurns,
     collapsibleThinkingBlocks: defaults.collapsibleThinkingBlocks,
     autoDeleteEnabled: defaults.autoDeleteEnabled,
     autoSaveEnabled: defaults.autoSaveEnabled,
@@ -672,6 +674,12 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
   if (typeof settings.sessionGoalDefaultBudget === 'number' && Number.isFinite(settings.sessionGoalDefaultBudget) && settings.sessionGoalDefaultBudget !== store.sessionGoalDefaultBudget) {
     store.setSessionGoalDefaultBudget(settings.sessionGoalDefaultBudget);
+  }
+  if (typeof settings.sessionGoalObjectiveCharLimit === 'number' && Number.isFinite(settings.sessionGoalObjectiveCharLimit) && settings.sessionGoalObjectiveCharLimit !== store.sessionGoalObjectiveCharLimit) {
+    store.setSessionGoalObjectiveCharLimit(settings.sessionGoalObjectiveCharLimit);
+  }
+  if (typeof settings.sessionGoalMaxAutoTurns === 'number' && Number.isFinite(settings.sessionGoalMaxAutoTurns) && settings.sessionGoalMaxAutoTurns !== store.sessionGoalMaxAutoTurns) {
+    store.setSessionGoalMaxAutoTurns(settings.sessionGoalMaxAutoTurns);
   }
   if (typeof settings.collapsibleThinkingBlocks === 'boolean' && settings.collapsibleThinkingBlocks !== store.collapsibleThinkingBlocks) {
     store.setCollapsibleThinkingBlocks(settings.collapsibleThinkingBlocks);
@@ -1205,6 +1213,12 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.sessionGoalDefaultBudget === 'number' && Number.isFinite(candidate.sessionGoalDefaultBudget) && candidate.sessionGoalDefaultBudget > 0) {
     result.sessionGoalDefaultBudget = Math.floor(candidate.sessionGoalDefaultBudget);
+  }
+  if (typeof candidate.sessionGoalObjectiveCharLimit === 'number' && Number.isFinite(candidate.sessionGoalObjectiveCharLimit) && candidate.sessionGoalObjectiveCharLimit >= 500) {
+    result.sessionGoalObjectiveCharLimit = Math.min(200_000, Math.floor(candidate.sessionGoalObjectiveCharLimit));
+  }
+  if (typeof candidate.sessionGoalMaxAutoTurns === 'number' && Number.isFinite(candidate.sessionGoalMaxAutoTurns) && candidate.sessionGoalMaxAutoTurns >= 0) {
+    result.sessionGoalMaxAutoTurns = Math.min(10_000, Math.floor(candidate.sessionGoalMaxAutoTurns));
   }
   if (typeof candidate.collapsibleThinkingBlocks === 'boolean') {
     result.collapsibleThinkingBlocks = candidate.collapsibleThinkingBlocks;

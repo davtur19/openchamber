@@ -3,6 +3,7 @@ import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSessionGoal } from '@/hooks/useSessionGoal';
 import { useSessionGoalArmStore } from '@/stores/useSessionGoalArmStore';
+import { useUIStore } from '@/stores/useUIStore';
 import { SESSION_GOAL_OBJECTIVE_CHAR_LIMIT } from '@/lib/sessionGoalMetadata';
 import { sessionGoalStatusColor } from '@/lib/sessionGoalPresentation';
 import { SessionGoalDialog } from '@/components/chat/SessionGoalDialog';
@@ -134,12 +135,13 @@ interface SessionGoalObjectiveCounterProps {
 export const SessionGoalObjectiveCounter: React.FC<SessionGoalObjectiveCounterProps> = React.memo(({ length }) => {
   const { t } = useI18n();
   const armed = useSessionGoalArmStore((state) => state.armed);
+  const charLimit = useUIStore((state) => state.sessionGoalObjectiveCharLimit) || SESSION_GOAL_OBJECTIVE_CHAR_LIMIT;
 
   if (!armed || length === 0) {
     return null;
   }
 
-  const over = length > SESSION_GOAL_OBJECTIVE_CHAR_LIMIT;
+  const over = length > charLimit;
   return (
     <span
       className={cn(
@@ -149,7 +151,7 @@ export const SessionGoalObjectiveCounter: React.FC<SessionGoalObjectiveCounterPr
       aria-label={t('chat.goal.counter.aria')}
       title={t('chat.goal.counter.aria')}
     >
-      {length}/{SESSION_GOAL_OBJECTIVE_CHAR_LIMIT}
+      {length}/{charLimit}
     </span>
   );
 });

@@ -15,6 +15,8 @@ type AppearanceSlice = {
   sessionGoalEnabled: boolean;
   sessionGoalDefaultBudgetEnabled: boolean;
   sessionGoalDefaultBudget: number;
+  sessionGoalObjectiveCharLimit: number;
+  sessionGoalMaxAutoTurns: number;
   collapsibleThinkingBlocks: boolean;
   showDeletionDialog: boolean;
   nativeNotificationsEnabled: boolean;
@@ -72,6 +74,8 @@ export const startAppearanceAutoSave = (): void => {
     sessionGoalEnabled: useUIStore.getState().sessionGoalEnabled,
     sessionGoalDefaultBudgetEnabled: useUIStore.getState().sessionGoalDefaultBudgetEnabled,
     sessionGoalDefaultBudget: useUIStore.getState().sessionGoalDefaultBudget,
+    sessionGoalObjectiveCharLimit: useUIStore.getState().sessionGoalObjectiveCharLimit,
+    sessionGoalMaxAutoTurns: useUIStore.getState().sessionGoalMaxAutoTurns,
     collapsibleThinkingBlocks: useUIStore.getState().collapsibleThinkingBlocks,
     showDeletionDialog: useUIStore.getState().showDeletionDialog,
     nativeNotificationsEnabled: useUIStore.getState().nativeNotificationsEnabled,
@@ -116,6 +120,8 @@ export const startAppearanceAutoSave = (): void => {
       sessionGoalEnabled: state.sessionGoalEnabled,
       sessionGoalDefaultBudgetEnabled: state.sessionGoalDefaultBudgetEnabled,
       sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
+      sessionGoalObjectiveCharLimit: state.sessionGoalObjectiveCharLimit,
+      sessionGoalMaxAutoTurns: state.sessionGoalMaxAutoTurns,
       collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
       showDeletionDialog: state.showDeletionDialog,
       nativeNotificationsEnabled: state.nativeNotificationsEnabled,
@@ -179,6 +185,12 @@ export const startAppearanceAutoSave = (): void => {
     }
     if (current.sessionGoalDefaultBudget !== previous.sessionGoalDefaultBudget) {
       diff.sessionGoalDefaultBudget = current.sessionGoalDefaultBudget;
+    }
+    if (current.sessionGoalObjectiveCharLimit !== previous.sessionGoalObjectiveCharLimit) {
+      diff.sessionGoalObjectiveCharLimit = current.sessionGoalObjectiveCharLimit;
+    }
+    if (current.sessionGoalMaxAutoTurns !== previous.sessionGoalMaxAutoTurns) {
+      diff.sessionGoalMaxAutoTurns = current.sessionGoalMaxAutoTurns;
     }
     if (current.collapsibleThinkingBlocks !== previous.collapsibleThinkingBlocks) {
       diff.collapsibleThinkingBlocks = current.collapsibleThinkingBlocks;

@@ -36,7 +36,7 @@ describe('session goal creation', () => {
         modelID: 'gpt-5.5',
       });
 
-      expect(writeObjectiveMock).toHaveBeenCalledWith('ses_123', 'Finish and verify the migration');
+      expect(writeObjectiveMock).toHaveBeenCalledWith('ses_123', 'Finish and verify the migration', 5000);
       expect(writeObjectiveMock.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
       expect(goal).toMatchObject({ objective: '', objectiveFile: true, status: 'active', tokenBudget: 200_000 });
       expect(fetchMock).toHaveBeenCalledWith(

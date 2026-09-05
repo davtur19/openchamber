@@ -833,6 +833,10 @@ interface UIStore {
   sessionGoalEnabled: boolean;
   sessionGoalDefaultBudgetEnabled: boolean;
   sessionGoalDefaultBudget: number;
+  /** Max characters accepted for a goal objective (inline or file-backed). */
+  sessionGoalObjectiveCharLimit: number;
+  /** Max auto-continuation turns before a goal settles as blocked. 0 = unlimited. */
+  sessionGoalMaxAutoTurns: number;
   collapsibleThinkingBlocks: boolean;
   chatRenderMode: ChatRenderMode;
   activityRenderMode: ActivityRenderMode;
@@ -1038,6 +1042,8 @@ interface UIStore {
   setSessionGoalEnabled: (value: boolean) => void;
   setSessionGoalDefaultBudgetEnabled: (value: boolean) => void;
   setSessionGoalDefaultBudget: (value: number) => void;
+  setSessionGoalObjectiveCharLimit: (value: number) => void;
+  setSessionGoalMaxAutoTurns: (value: number) => void;
   setCollapsibleThinkingBlocks: (value: boolean) => void;
   setChatRenderMode: (value: ChatRenderMode) => void;
   setActivityRenderMode: (value: ActivityRenderMode) => void;
@@ -1218,6 +1224,8 @@ export const useUIStore = create<UIStore>()(
         sessionGoalEnabled: true,
         sessionGoalDefaultBudgetEnabled: false,
         sessionGoalDefaultBudget: 200_000,
+        sessionGoalObjectiveCharLimit: 5_000,
+        sessionGoalMaxAutoTurns: 20,
         collapsibleThinkingBlocks: true,
         chatRenderMode: 'live',
         activityRenderMode: 'summary',
@@ -2016,6 +2024,14 @@ export const useUIStore = create<UIStore>()(
 
         setSessionGoalDefaultBudget: (value) => {
           set({ sessionGoalDefaultBudget: value });
+        },
+
+        setSessionGoalObjectiveCharLimit: (value) => {
+          set({ sessionGoalObjectiveCharLimit: value });
+        },
+
+        setSessionGoalMaxAutoTurns: (value) => {
+          set({ sessionGoalMaxAutoTurns: value });
         },
 
         setCollapsibleThinkingBlocks: (value) => {
@@ -2966,6 +2982,8 @@ export const useUIStore = create<UIStore>()(
           sessionGoalEnabled: state.sessionGoalEnabled,
           sessionGoalDefaultBudgetEnabled: state.sessionGoalDefaultBudgetEnabled,
           sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
+          sessionGoalObjectiveCharLimit: state.sessionGoalObjectiveCharLimit,
+          sessionGoalMaxAutoTurns: state.sessionGoalMaxAutoTurns,
           collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
           chatRenderMode: state.chatRenderMode,
           activityRenderMode: state.activityRenderMode,

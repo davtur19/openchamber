@@ -318,6 +318,10 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
     const setSessionGoalDefaultBudgetEnabled = useUIStore(state => state.setSessionGoalDefaultBudgetEnabled);
     const sessionGoalDefaultBudget = useUIStore(state => state.sessionGoalDefaultBudget);
     const setSessionGoalDefaultBudget = useUIStore(state => state.setSessionGoalDefaultBudget);
+    const sessionGoalObjectiveCharLimit = useUIStore(state => state.sessionGoalObjectiveCharLimit);
+    const setSessionGoalObjectiveCharLimit = useUIStore(state => state.setSessionGoalObjectiveCharLimit);
+    const sessionGoalMaxAutoTurns = useUIStore(state => state.sessionGoalMaxAutoTurns);
+    const setSessionGoalMaxAutoTurns = useUIStore(state => state.setSessionGoalMaxAutoTurns);
     const setShowReasoningTraces = useUIStore(state => state.setShowReasoningTraces);
     const streamingAutoFollowEnabled = useUIStore(state => state.streamingAutoFollowEnabled);
     const setStreamingAutoFollowEnabled = useUIStore(state => state.setStreamingAutoFollowEnabled);
@@ -1842,6 +1846,46 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
                                                     min={1000}
                                                     max={100000000}
                                                     step={50000}
+                                                />
+                                            ) : null}
+                                        </div>
+                                        <div data-settings-item="chat.session-goal-char-limit" className="flex items-center gap-2">
+                                            <span className="typography-ui-label text-foreground">
+                                                {t('settings.openchamber.visual.goal.charLimitLabel')}
+                                            </span>
+                                            <NumberInput
+                                                value={sessionGoalObjectiveCharLimit}
+                                                onValueChange={(value) => {
+                                                    if (typeof value === 'number' && Number.isFinite(value) && value >= 500) {
+                                                        setSessionGoalObjectiveCharLimit(Math.floor(value));
+                                                    }
+                                                }}
+                                                disabled={!sessionGoalEnabled}
+                                                aria-label={t('settings.openchamber.visual.goal.charLimitAria')}
+                                                min={500}
+                                                max={200000}
+                                                step={1000}
+                                            />
+                                        </div>
+                                        <div data-settings-item="chat.session-goal-max-turns" className="flex items-center gap-2">
+                                            <SettingsCheckboxRow
+                                                checked={sessionGoalMaxAutoTurns !== 0}
+                                                onChange={(checked) => setSessionGoalMaxAutoTurns(checked ? 20 : 0)}
+                                                disabled={!sessionGoalEnabled}
+                                                label={t('settings.openchamber.visual.goal.maxTurnsLabel')}
+                                                ariaLabel={t('settings.openchamber.visual.goal.maxTurnsAria')}
+                                            />
+                                            {sessionGoalEnabled && sessionGoalMaxAutoTurns !== 0 ? (
+                                                <NumberInput
+                                                    value={sessionGoalMaxAutoTurns}
+                                                    onValueChange={(value) => {
+                                                        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+                                                            setSessionGoalMaxAutoTurns(Math.floor(value));
+                                                        }
+                                                    }}
+                                                    min={1}
+                                                    max={10000}
+                                                    step={5}
                                                 />
                                             ) : null}
                                         </div>

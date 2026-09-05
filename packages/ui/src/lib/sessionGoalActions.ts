@@ -3,11 +3,15 @@ import { distillGoalObjective } from '@/lib/smallModel';
 import { formatMessage, useI18nStore } from '@/lib/i18n';
 import { toast } from '@/components/ui';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { useUIStore } from '@/stores/useUIStore';
 import {
   SESSION_GOAL_OBJECTIVE_CHAR_LIMIT,
   type SessionGoalPayload,
   type SessionGoalStatus,
 } from '@/lib/sessionGoalMetadata';
+
+const getObjectiveCharLimit = (): number =>
+  useUIStore.getState().sessionGoalObjectiveCharLimit || SESSION_GOAL_OBJECTIVE_CHAR_LIMIT;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -86,14 +90,15 @@ export interface SetSessionGoalInput {
 const TRIM_MARKER = '\n\n[… objective trimmed for the auditor — the full text was delivered in the chat message …]\n\n';
 
 const fitObjective = async (raw: string): Promise<string> => {
-  if (raw.length <= SESSION_GOAL_OBJECTIVE_CHAR_LIMIT) {
+  const charLimit = getObjectiveCharLimit();
+  if (raw.length <= charLimit) {
     return raw;
   }
   const distilled = await distillGoalObjective(raw);
   if (distilled) {
-    return distilled.slice(0, SESSION_GOAL_OBJECTIVE_CHAR_LIMIT);
+    return distilled.slice(0, charLimit);
   }
-  const half = Math.max(0, Math.floor((SESSION_GOAL_OBJECTIVE_CHAR_LIMIT - TRIM_MARKER.length) / 2));
+  const half = Math.max(0, Math.floor((charLimit - TRIM_MARKER.length) / 2));
   const dictionary = useI18nStore.getState().dictionary;
   toast.error(formatMessage(dictionary, 'chat.goal.toast.distillFallback'));
   return `${raw.slice(0, half)}${TRIM_MARKER}${raw.slice(-half)}`;

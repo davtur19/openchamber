@@ -9,6 +9,9 @@ export type SessionGoalStatus = 'active' | 'paused' | 'blocked' | 'budgetLimited
 
 const SESSION_GOAL_STATUSES: SessionGoalStatus[] = ['active', 'paused', 'blocked', 'budgetLimited', 'complete'];
 
+// Fallback used before settings load, or wherever the live setting isn't
+// wired through. The authoritative, user-configurable value lives at
+// useUIStore's `sessionGoalObjectiveCharLimit` (Settings > Session Goals).
 export const SESSION_GOAL_OBJECTIVE_CHAR_LIMIT = 5000;
 
 export interface SessionGoalPayload {

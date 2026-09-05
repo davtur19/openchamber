@@ -254,6 +254,7 @@ export const createScheduledTasksRuntime = (deps) => {
     waitForOpenCodeReady,
     emitTaskRunEvent,
     setSessionAutoAccept,
+    readSettingsFromDiskMigrated = async () => ({}),
     sessionKnowledgeRuntime = null,
     logger = console,
     maxGlobalConcurrency = DEFAULT_GLOBAL_CONCURRENCY,
@@ -594,6 +595,7 @@ export const createScheduledTasksRuntime = (deps) => {
       const commandObjective = scheduledCommand
         ? expandCommandGoalObjective(scheduledCommand.template, scheduledCommand.arguments)
         : null;
+      const goalSettings = await readSettingsFromDiskMigrated().catch(() => ({}));
       await createSessionGoal({
         baseUrl,
         authHeaders,
@@ -604,6 +606,7 @@ export const createScheduledTasksRuntime = (deps) => {
         providerID: task.execution.providerID,
         modelID: task.execution.modelID,
         onWarning: (message, error) => console.warn(`[scheduled-tasks] ${message}:`, error?.message || error),
+        ...(typeof goalSettings.sessionGoalObjectiveCharLimit === 'number' ? { charLimit: goalSettings.sessionGoalObjectiveCharLimit } : {}),
       });
     }
 

@@ -334,6 +334,12 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.sessionGoalDefaultBudget === 'number' && Number.isFinite(candidate.sessionGoalDefaultBudget) && candidate.sessionGoalDefaultBudget > 0) {
       result.sessionGoalDefaultBudget = Math.floor(candidate.sessionGoalDefaultBudget);
     }
+    if (typeof candidate.sessionGoalObjectiveCharLimit === 'number' && Number.isFinite(candidate.sessionGoalObjectiveCharLimit) && candidate.sessionGoalObjectiveCharLimit >= 500) {
+      result.sessionGoalObjectiveCharLimit = Math.min(200_000, Math.floor(candidate.sessionGoalObjectiveCharLimit));
+    }
+    if (typeof candidate.sessionGoalMaxAutoTurns === 'number' && Number.isFinite(candidate.sessionGoalMaxAutoTurns) && candidate.sessionGoalMaxAutoTurns >= 0) {
+      result.sessionGoalMaxAutoTurns = Math.min(10_000, Math.floor(candidate.sessionGoalMaxAutoTurns));
+    }
     if (typeof candidate.collapsibleThinkingBlocks === 'boolean') {
       result.collapsibleThinkingBlocks = candidate.collapsibleThinkingBlocks;
     }

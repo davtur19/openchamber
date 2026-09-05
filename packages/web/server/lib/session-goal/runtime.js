@@ -69,7 +69,9 @@ const escapeXmlText = (value) => String(value ?? '')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
-const buildContinuationPrompt = (goal) => {
+const formatMaxAutoTurns = (value) => (value === Infinity ? 'unlimited' : String(value));
+
+const buildContinuationPrompt = (goal, maxAutoTurns = MAX_AUTO_TURNS) => {
   const remaining = typeof goal.tokenBudget === 'number'
     ? Math.max(0, goal.tokenBudget - goal.tokensUsed)
     : null;
@@ -90,7 +92,7 @@ const buildContinuationPrompt = (goal) => {
     '</objective>',
     '',
     ...budgetLines,
-    `Auto-continuations used: ${goal.turnsUsed} of ${MAX_AUTO_TURNS}.`,
+    `Auto-continuations used: ${goal.turnsUsed} of ${formatMaxAutoTurns(maxAutoTurns)}.`,
     '',
     'Continuation rules:',
     '- The goal persists across turns. Keep the full objective intact; do not redefine success around a smaller subtask.',
@@ -304,6 +306,12 @@ export const createSessionGoalRuntime = ({
   idleQuietMs = IDLE_QUIET_MS,
   kickoffQuietMs = KICKOFF_QUIET_MS,
   maxAutoTurns = MAX_AUTO_TURNS,
+  // Optional live override: async () => number | Infinity. Re-read fresh each
+  // tick (e.g. from disk-persisted settings) so a UI change applies without a
+  // restart. Falls back to the static `maxAutoTurns` above when omitted, so
+  // existing callers/tests are unaffected. A setting value of 0 means
+  // "unlimited" and should be translated to Infinity by the caller.
+  getMaxAutoTurns = null,
 }) => {
   const timers = new Map();
   const inflight = new Set();
@@ -474,7 +482,7 @@ export const createSessionGoalRuntime = ({
     }
   };
 
-  const sendContinuation = async ({ sessionId, directory, goal, lastAssistantInfo }) => {
+  const sendContinuation = async ({ sessionId, directory, goal, lastAssistantInfo, maxAutoTurns: effectiveMaxAutoTurns = MAX_AUTO_TURNS }) => {
     const providerID = typeof lastAssistantInfo?.providerID === 'string' ? lastAssistantInfo.providerID : '';
     const modelID = typeof lastAssistantInfo?.modelID === 'string' ? lastAssistantInfo.modelID : '';
     if (!providerID || !modelID) {
@@ -491,7 +499,7 @@ export const createSessionGoalRuntime = ({
         model: { providerID, modelID },
         ...(agent ? { agent } : {}),
         ...(variant ? { variant } : {}),
-        parts: [{ type: 'text', text: buildContinuationPrompt(goal) }],
+        parts: [{ type: 'text', text: buildContinuationPrompt(goal, effectiveMaxAutoTurns) }],
       },
     });
   };
@@ -696,8 +704,12 @@ export const createSessionGoalRuntime = ({
       return;
     }
 
-    // Auto-continuation safety cap → blocked.
-    if (goal.turnsUsed >= maxAutoTurns) {
+    // Auto-continuation safety cap → blocked. Resolved live so a setting
+    // change (including switching to unlimited) applies without a restart.
+    const effectiveMaxAutoTurns = typeof getMaxAutoTurns === 'function'
+      ? await getMaxAutoTurns().catch(() => maxAutoTurns)
+      : maxAutoTurns;
+    if (goal.turnsUsed >= effectiveMaxAutoTurns) {
       await settleGoal({
         sessionId, directory, goal, status: 'blocked', statusReason: 'auto-continuation limit reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
       });
@@ -801,8 +813,8 @@ export const createSessionGoalRuntime = ({
       return;
     }
 
-    console.log(`[session-goal] continuing ${sessionId} (turn ${written.turnsUsed}/${maxAutoTurns}, tokens ${written.tokensUsed}${written.tokenBudget ? `/${written.tokenBudget}` : ''})`);
-    await sendContinuation({ sessionId, directory, goal: { ...written, objective: effectiveObjective }, lastAssistantInfo: executionInfo ?? lastAssistantInfo });
+    console.log(`[session-goal] continuing ${sessionId} (turn ${written.turnsUsed}/${formatMaxAutoTurns(effectiveMaxAutoTurns)}, tokens ${written.tokensUsed}${written.tokenBudget ? `/${written.tokenBudget}` : ''})`);
+    await sendContinuation({ sessionId, directory, goal: { ...written, objective: effectiveObjective }, lastAssistantInfo: executionInfo ?? lastAssistantInfo, maxAutoTurns: effectiveMaxAutoTurns });
   };
 
   const armTimer = (sessionId, directory, quietMs) => {

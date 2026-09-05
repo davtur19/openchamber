@@ -524,6 +524,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       const commandObjective = resolvedCommand
         ? expandCommandGoalObjective(resolvedCommand.template, resolvedCommand.arguments)
         : null;
+      const goalSettings = await readSettingsFromDiskMigrated().catch(() => ({}));
       await (createSessionGoalOverride || createSessionGoal)({
         baseUrl,
         authHeaders,
@@ -534,6 +535,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         providerID: model.providerID,
         modelID: model.modelID,
         onWarning: (message, error) => console.warn(`[OpenChamberSessions] ${message}:`, error?.message || error),
+        ...(typeof goalSettings.sessionGoalObjectiveCharLimit === 'number' ? { charLimit: goalSettings.sessionGoalObjectiveCharLimit } : {}),
       });
     }
 

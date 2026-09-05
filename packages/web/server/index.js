@@ -788,6 +788,12 @@ const sessionGoalRuntime = createSessionGoalRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
   getSmallModelService: async () => import('./lib/small-model/index.js'),
+  getMaxAutoTurns: async () => {
+    const settings = await readSettingsFromDiskMigrated().catch(() => ({}));
+    const value = settings?.sessionGoalMaxAutoTurns;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 20;
+    return value === 0 ? Infinity : value;
+  },
   emitGoalNotification: async ({ sessionId, directory, status, goal }) => {
     // The goal settle notification replaces the per-turn ready notifications
     // (suppressed while the goal is active) — so it obeys the same toggle.
@@ -1264,6 +1270,7 @@ const scheduledTasksRuntime = createScheduledTasksRuntime({
   getOpenCodeAuthHeaders,
   waitForOpenCodeReady,
   sessionKnowledgeRuntime,
+  readSettingsFromDiskMigrated,
   setSessionAutoAccept: (sessionId, enabled, directory) => permissionAutoAcceptRuntime.setSessionPolicy(sessionId, enabled, directory),
   emitTaskRunEvent: (event) => {
     for (const client of uiOpenChamberEventClients) {

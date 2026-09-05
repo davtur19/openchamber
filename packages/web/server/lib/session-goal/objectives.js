@@ -27,14 +27,18 @@ const objectiveFilePath = (sessionId) => path.join(goalsDir(), `${sessionId}.md`
 export const isValidObjectiveKey = (sessionId) =>
   typeof sessionId === 'string' && SESSION_ID_PATTERN.test(sessionId);
 
-const clampContent = (content) => String(content ?? '').trim().slice(0, GOAL_OBJECTIVE_CHAR_LIMIT);
+const clampContent = (content, limit = GOAL_OBJECTIVE_CHAR_LIMIT) => String(content ?? '').trim().slice(0, limit);
 
-/** Write (or overwrite — a new goal replaces the old one) the session's objective. */
-export const writeObjective = async (sessionId, content) => {
+/**
+ * Write (or overwrite — a new goal replaces the old one) the session's objective.
+ * `limit` defaults to GOAL_OBJECTIVE_CHAR_LIMIT; callers pass the live
+ * `sessionGoalObjectiveCharLimit` setting when they have it.
+ */
+export const writeObjective = async (sessionId, content, limit = GOAL_OBJECTIVE_CHAR_LIMIT) => {
   if (!isValidObjectiveKey(sessionId)) {
     throw Object.assign(new Error('invalid session id'), { statusCode: 400 });
   }
-  const text = clampContent(content);
+  const text = clampContent(content, limit);
   if (!text) {
     throw Object.assign(new Error('objective content is required'), { statusCode: 400 });
   }
@@ -44,11 +48,11 @@ export const writeObjective = async (sessionId, content) => {
 };
 
 /** Returns the objective text, or null when missing/invalid. */
-export const readObjective = async (sessionId) => {
+export const readObjective = async (sessionId, limit = GOAL_OBJECTIVE_CHAR_LIMIT) => {
   if (!isValidObjectiveKey(sessionId)) return null;
   try {
     const raw = await fs.promises.readFile(objectiveFilePath(sessionId), 'utf8');
-    return clampContent(raw);
+    return clampContent(raw, limit);
   } catch {
     return null;
   }

@@ -34,6 +34,7 @@ interface SessionGoalDialogProps {
 export function SessionGoalDialog({ open, onOpenChange, sessionId, directory }: SessionGoalDialogProps) {
   const { t } = useI18n();
   const isMobile = useUIStore((state) => state.isMobile);
+  const charLimit = useUIStore((state) => state.sessionGoalObjectiveCharLimit) || SESSION_GOAL_OBJECTIVE_CHAR_LIMIT;
   const { goal } = useSessionGoal(sessionId, directory);
   const objectiveContent = useGoalObjectiveContent(sessionId, goal);
 
@@ -136,14 +137,14 @@ export function SessionGoalDialog({ open, onOpenChange, sessionId, directory }: 
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="typography-ui-label text-foreground">{t('chat.goal.dialog.objectiveLabel')}</span>
                   <span className="typography-micro tabular-nums text-muted-foreground/70" aria-label={t('chat.goal.counter.aria')}>
-                    {objective.length}/{SESSION_GOAL_OBJECTIVE_CHAR_LIMIT}
+                    {objective.length}/{charLimit}
                   </span>
                 </div>
                 <Textarea
                   value={objective}
                   onChange={(event) => setObjective(event.target.value)}
                   placeholder={t('chat.goal.dialog.objectivePlaceholder')}
-                  maxLength={SESSION_GOAL_OBJECTIVE_CHAR_LIMIT}
+                  maxLength={charLimit}
                   rows={4}
                 />
               </div>

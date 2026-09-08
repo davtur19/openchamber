@@ -118,7 +118,7 @@ const languageIconMap: Record<string, string> = {
   reason: 'reason',
   nim: 'nim',
   zig: 'zig',
-  v: 'vlang',
+  v: 'verilog',
   crystal: 'crystal',
   d: 'd',
   sql: 'database',

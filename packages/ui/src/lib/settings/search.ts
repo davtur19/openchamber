@@ -229,6 +229,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'chat.session-goal-char-limit',
+    page: 'chat',
+    titleKey: 'settings.openchamber.visual.goal.charLimitLabel',
+    keywords: ['goal', 'objective', 'character', 'limit', 'truncate'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'chat.session-goal-max-turns',
+    page: 'chat',
+    titleKey: 'settings.openchamber.visual.goal.maxTurnsLabel',
+    keywords: ['goal', 'auto continue', 'turns', 'limit', 'unlimited'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.reasoning-traces',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.showReasoningTraces',

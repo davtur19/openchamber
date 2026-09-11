@@ -54,6 +54,14 @@ const BLOCKED_STREAK_LIMIT = 3;
 // hiccup allows a single unaudited continuation; a dead small model must not
 // drive the loop blind all the way to the turn cap.
 const AUDIT_FAIL_LIMIT = 2;
+// Attempts per audit tick: the audit is a tiny idempotent JSON call, so a
+// flaky-gateway 500 gets a couple of extra chances with a short backoff
+// before the tick counts an audit failure. Small and non-aggressive on
+// purpose — a persistently dead model must still surface as unavailable
+// within seconds, not minutes.
+const AUDIT_MAX_ATTEMPTS = 3;
+const AUDIT_RETRY_BASE_MS = 1000;
+const AUDIT_RETRY_MAX_MS = 4000;
 
 const GOAL_STATUSES = ['active', 'paused', 'blocked', 'budgetLimited', 'complete'];
 
@@ -65,6 +73,19 @@ const escapeXmlText = (value) => String(value ?? '')
   .replace(/>/g, '&gt;');
 
 const formatMaxAutoTurns = (value) => (value === Infinity ? 'unlimited' : String(value));
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 4xx from the small-model call is deterministic (no login, bad shape,
+// unsupported model): retrying is pointless. Everything else (5xx, network,
+// timeouts) is worth the extra attempts. AbortError is never retried — the
+// caller going away must stop the loop, not spin it.
+const isRetryableAuditError = (error) => {
+  if (error?.name === 'AbortError') return false;
+  const status = Number(error?.status ?? error?.statusCode);
+  if (Number.isFinite(status) && status >= 400 && status < 500) return false;
+  return true;
+};
 
 const buildContinuationPrompt = (goal, maxAutoTurns = MAX_AUTO_TURNS) => {
   const remaining = typeof goal.tokenBudget === 'number'
@@ -426,59 +447,73 @@ export const createSessionGoalRuntime = ({
     } catch {
       return null;
     }
-    try {
-      const generated = await service.generateSmallModelText({
-        // Background feature: conversation content must never leave the
-        // session's own provider unless the user explicitly picked a small
-        // model (settings override / opencode config).
-        restrictToPreferredProvider: true,
-        // Instruct the language by example, not by description — account-side
-        // personalization otherwise leaks a different language into the note.
-        prompt: `The goal objective:\n\n<objective>\n${goal.objective}\n</objective>\n\nThe agent's latest turn:\n\n${assistantText}\n\nReturn the verdict JSON. Write the note in the SAME language as this sample from the objective: "${goal.objective.slice(0, 200).replace(/\s+/g, ' ').trim()}"`,
-        system: buildAuditSystemPrompt(),
-        directory,
-        sessionID: typeof lastAssistantInfo?.sessionID === 'string' ? lastAssistantInfo.sessionID : undefined,
-        preferredProviderID: typeof lastAssistantInfo?.providerID === 'string' ? lastAssistantInfo.providerID : undefined,
-        preferredModelID: typeof lastAssistantInfo?.modelID === 'string' ? lastAssistantInfo.modelID : undefined,
-      });
-      const structured = extractJsonObject(generated?.text);
-      const verdict = typeof structured?.verdict === 'string' ? structured.verdict.trim().toLowerCase() : '';
-      if (!structured || !['continue', 'complete', 'blocked'].includes(verdict)) {
-        console.warn('[session-goal:diagnostic] audit parse failed', {
+    const prompt = `The goal objective:\n\n<objective>\n${goal.objective}\n</objective>\n\nThe agent's latest turn:\n\n${assistantText}\n\nReturn the verdict JSON. Write the note in the SAME language as this sample from the objective: "${goal.objective.slice(0, 200).replace(/\s+/g, ' ').trim()}"`;
+    const system = buildAuditSystemPrompt();
+    const sessionID = typeof lastAssistantInfo?.sessionID === 'string' ? lastAssistantInfo.sessionID : undefined;
+    const preferredProviderID = typeof lastAssistantInfo?.providerID === 'string' ? lastAssistantInfo.providerID : undefined;
+    const preferredModelID = typeof lastAssistantInfo?.modelID === 'string' ? lastAssistantInfo.modelID : undefined;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const generated = await service.generateSmallModelText({
+          // Background feature: conversation content must never leave the
+          // session's own provider unless the user explicitly picked a small
+          // model (settings override / opencode config).
+          restrictToPreferredProvider: true,
+          // Instruct the language by example, not by description — account-side
+          // personalization otherwise leaks a different language into the note.
+          prompt,
+          system,
+          directory,
+          sessionID,
+          preferredProviderID,
+          preferredModelID,
+        });
+        const structured = extractJsonObject(generated?.text);
+        const verdict = typeof structured?.verdict === 'string' ? structured.verdict.trim().toLowerCase() : '';
+        if (!structured || !['continue', 'complete', 'blocked'].includes(verdict)) {
+          console.warn('[session-goal:diagnostic] audit parse failed', {
+            sessionId: lastAssistantInfo?.sessionID ?? null,
+            provider: generated?.providerID ?? null,
+            model: generated?.modelID ?? null,
+            outputChars: typeof generated?.text === 'string' ? generated.text.length : 0,
+            jsonObjectFound: Boolean(structured),
+            verdict: verdict || null,
+            attempt,
+          });
+          if (attempt < AUDIT_MAX_ATTEMPTS) {
+            await sleep(Math.min(AUDIT_RETRY_BASE_MS * attempt, AUDIT_RETRY_MAX_MS));
+            continue;
+          }
+          return null;
+        }
+        console.log('[session-goal:diagnostic] audit verdict', {
           sessionId: lastAssistantInfo?.sessionID ?? null,
           provider: generated?.providerID ?? null,
           model: generated?.modelID ?? null,
-          outputChars: typeof generated?.text === 'string' ? generated.text.length : 0,
-          jsonObjectFound: Boolean(structured),
-          verdict: verdict || null,
+          outputChars: generated.text.length,
+          verdict,
+          ...(attempt > 1 ? { attempt } : {}),
         });
-        return null;
+        let note = clampText(structured?.note, NOTE_CHAR_LIMIT);
+        if (note && hasScriptMismatch(note, `${goal.objective}\n${assistantText}`)) {
+          console.warn('[session-goal] dropped audit note: language mismatch with objective');
+          note = '';
+        }
+        return {
+          verdict,
+          note,
+          evaluationProviderID: generated.providerID,
+          evaluationModelID: generated.modelID,
+        };
+      } catch (error) {
+        // No authenticated small model (404) or a transient failure — the loop
+        // still terminates via markers, budget, and the turn cap.
+        if (Number(error?.statusCode) !== 404) {
+          console.warn('[session-goal] audit failed:', error?.message || error);
+        }
+        if (attempt >= AUDIT_MAX_ATTEMPTS || !isRetryableAuditError(error)) return null;
+        await sleep(Math.min(AUDIT_RETRY_BASE_MS * attempt, AUDIT_RETRY_MAX_MS));
       }
-      console.log('[session-goal:diagnostic] audit verdict', {
-        sessionId: lastAssistantInfo?.sessionID ?? null,
-        provider: generated?.providerID ?? null,
-        model: generated?.modelID ?? null,
-        outputChars: generated.text.length,
-        verdict,
-      });
-      let note = clampText(structured?.note, NOTE_CHAR_LIMIT);
-      if (note && hasScriptMismatch(note, `${goal.objective}\n${assistantText}`)) {
-        console.warn('[session-goal] dropped audit note: language mismatch with objective');
-        note = '';
-      }
-      return {
-        verdict,
-        note,
-        evaluationProviderID: generated.providerID,
-        evaluationModelID: generated.modelID,
-      };
-    } catch (error) {
-      // No authenticated small model (404) or a transient failure — the loop
-      // still terminates via markers, budget, and the turn cap.
-      if (Number(error?.statusCode) !== 404) {
-        console.warn('[session-goal] audit failed:', error?.message || error);
-      }
-      return null;
     }
   };
 

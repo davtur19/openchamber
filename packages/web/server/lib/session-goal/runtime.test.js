@@ -775,4 +775,57 @@ describe('session goal transient vs permanent failures', () => {
     expect(lastPatch(patches)).toMatchObject({ status: 'blocked', statusReason: 'progress audit unavailable' });
     runtime.stop();
   });
+
+  it('does not retry a permanent 404 audit failure within a tick', async () => {
+    const { runtime, service, patches } = await startGoalHarness({
+      messagesForFetch: () => [assistantMessage()],
+      generateSmallModelText: async () => {
+        throw Object.assign(new Error('No small model available'), { statusCode: 404 });
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(service.generateSmallModelText).toHaveBeenCalledOnce();
+    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 1 });
+    runtime.stop();
+  });
+
+  it('retries a transient 500 audit twice and continues on success', async () => {
+    let calls = 0;
+    const { runtime, service, patches } = await startGoalHarness({
+      messagesForFetch: () => [assistantMessage()],
+      generateSmallModelText: async () => {
+        calls += 1;
+        if (calls <= 2) throw Object.assign(new Error('Internal server error'), { status: 500 });
+        return continueVerdict;
+      },
+    });
+
+    // First tick: two 500s (1s + 2s backoff) then success — one audited
+    // continuation, no failure recorded. Small stepped advances: a big jump
+    // would fire follow-up ticks (every tick re-audits the same tail).
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(service.generateSmallModelText).toHaveBeenCalledTimes(3);
+    expect(patches.some((patch) => patch.status === 'blocked')).toBe(false);
+    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 0 });
+    runtime.stop();
+  });
+
+  it('counts one audit failure after three consecutive 500s in a tick', async () => {
+    const { runtime, service, patches } = await startGoalHarness({
+      messagesForFetch: () => [assistantMessage()],
+      generateSmallModelText: async () => {
+        throw Object.assign(new Error('Internal server error'), { status: 500 });
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(service.generateSmallModelText).toHaveBeenCalledTimes(3);
+    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 1 });
+    runtime.stop();
+  });
 });

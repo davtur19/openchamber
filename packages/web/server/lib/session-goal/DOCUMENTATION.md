@@ -135,7 +135,9 @@ before touching the filesystem). Rationale: metadata rides every
      termination authority besides the hard stops above — the working agent
      has no channel to settle its own goal. `complete` settles; `blocked`
      increments `blockedStreak` and settles only after 3 consecutive blocked
-     verdicts, so a one-off snag cannot end the goal. Audit failure/absence
+     verdicts, so a one-off snag cannot end the goal. Each audit gets up to 3
+     attempts with a short backoff; only retryable failures (5xx/network/
+     timeouts, never 4xx auth/shape) are retried. Audit failure/absence
      tolerates ONE consecutive unaudited continuation (`auditFailStreak`); a
      second consecutive failure settles the goal as `blocked` ("progress
      audit unavailable") — resumable, and settling resets the streak so

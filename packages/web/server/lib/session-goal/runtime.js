@@ -54,6 +54,11 @@ const BLOCKED_STREAK_LIMIT = 3;
 // hiccup allows a single unaudited continuation; a dead small model must not
 // drive the loop blind all the way to the turn cap.
 const AUDIT_FAIL_LIMIT = 2;
+// Consecutive TRANSIENT turn errors (5xx/429/timeout/upstream) tolerated
+// before the goal settles as blocked. One provider hiccup must not kill the
+// goal on the first try, but a provider that stays down across ticks must
+// eventually block (resumable) instead of retrying forever.
+const TURN_ERROR_RETRY_LIMIT = 5;
 // Attempts per audit tick: the audit is a tiny idempotent JSON call, so a
 // flaky-gateway 500 gets a couple of extra chances with a short backoff
 // before the tick counts an audit failure. Small and non-aggressive on
@@ -145,6 +150,55 @@ const SCRIPT_RANGES = [
 const hasScriptMismatch = (text, inputText) =>
   SCRIPT_RANGES.some((range) => range.test(text) && !range.test(inputText));
 
+// Phrases that mark a provider/gateway error as transient even when no HTTP
+// status code is attached. SDKs and proxies embed these in plain error strings
+// (with or without a bracketed status like "[503]"). Case-insensitive substring
+// match, so only the listed phrases ever match — 4xx (non-429) messages stay
+// permanent. Mirrors opencode's own retry classification (provider/error.ts,
+// session/retry.ts) so the goal loop agrees with the agent's retry policy.
+const RETRYABLE_MESSAGE_PHRASES = [
+  'upstream response was not valid json',
+  'upstream request failed',
+  'upstream request timed out',
+  'invalid json response',
+  'request queue is full',
+  'service unavailable',
+  'internal server error',
+  'gateway timeout',
+  'bad gateway',
+  'too many requests',
+  'upstream',
+];
+
+const isTransientMessage = (value) => {
+  const text = String(value ?? '').toLowerCase();
+  return RETRYABLE_MESSAGE_PHRASES.some((phrase) => text.includes(phrase));
+};
+
+// Classifies an assistant turn error as transient (retryable across ticks)
+// when it is a 5xx/429, a timeout, or embeds a known transient phrase.
+// OpenCode serializes NamedErrors as { name, data } — APIError carries
+// data.statusCode / data.message / data.responseBody, and the small-model
+// call layer throws flat errors with .status. A concrete 4xx status is
+// permanent even when the body happens to mention a transient phrase (e.g. a
+// gateway HTML error page under 401/403). Everything else (auth, not found,
+// content policy, shape) is permanent.
+const isTransientTurnError = (error) => {
+  if (!error || typeof error !== 'object') return false;
+  const data = error.data && typeof error.data === 'object' ? error.data : {};
+  const status = Number(error.status ?? error.statusCode ?? data.statusCode);
+  if (Number.isFinite(status)) {
+    if (status >= 500 || status === 429) return true;
+    if (status >= 400) return false;
+  }
+  const name = typeof error.name === 'string' ? error.name : '';
+  if (/timeout|timed out/i.test(name)) return true;
+  const messages = [error.message, data.message, data.responseBody, error.responseBody]
+    .filter((value) => typeof value === 'string')
+    .join('\n');
+  return isTransientMessage(messages) || /timeout|timed out/i.test(messages);
+};
+
 const extractJsonObject = (value) => {
   const text = String(value ?? '').trim();
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -229,6 +283,7 @@ const parseGoalMetadata = (session) => {
     turnsUsed: Number.isFinite(goal.turnsUsed) && goal.turnsUsed > 0 ? Math.floor(goal.turnsUsed) : 0,
     blockedStreak: Number.isFinite(goal.blockedStreak) && goal.blockedStreak > 0 ? Math.floor(goal.blockedStreak) : 0,
     auditFailStreak: Number.isFinite(goal.auditFailStreak) && goal.auditFailStreak > 0 ? Math.floor(goal.auditFailStreak) : 0,
+    turnErrorStreak: Number.isFinite(goal.turnErrorStreak) && goal.turnErrorStreak > 0 ? Math.floor(goal.turnErrorStreak) : 0,
     note: typeof goal.note === 'string' ? goal.note.slice(0, NOTE_CHAR_LIMIT) : '',
     statusReason: typeof goal.statusReason === 'string' ? goal.statusReason.slice(0, REASON_CHAR_LIMIT) : '',
     evaluationProviderID: typeof goal.evaluationProviderID === 'string' ? goal.evaluationProviderID : '',
@@ -422,6 +477,7 @@ export const createSessionGoalRuntime = ({
       note: note !== undefined ? clampText(note, NOTE_CHAR_LIMIT) : current.note,
       blockedStreak: 0,
       auditFailStreak: 0,
+      turnErrorStreak: 0,
       ...(tokensUsed !== undefined ? { tokensUsed } : {}),
       ...(tokensBaseline !== undefined ? { tokensBaseline } : {}),
       ...(tokensCommitted !== undefined ? { tokensCommitted } : {}),
@@ -724,13 +780,34 @@ export const createSessionGoalRuntime = ({
       return;
     }
 
-    // Non-length turn error → blocked (prevents runaway auto-continuation into
-    // failures). Recognized length cutoffs are in-progress continuations, not
-    // hard failures.
+    // Turn error → transient provider failures (5xx/429/timeout/upstream
+    // messages) are retried across ticks instead of settling; the streak is
+    // persisted in `turnErrorStreak` and only TURN_ERROR_RETRY_LIMIT (5)
+    // consecutive transient failures block the goal. Permanent errors (auth,
+    // not found, content policy, shape, and non-object error payloads) block
+    // immediately — retrying those is pointless. Length cutoffs are
+    // in-progress continuations, not failures, and are handled below.
     if (!abortedTail && !lengthTail && hasError) {
-      await settleGoal({
-        sessionId, directory, goal, status: 'blocked', statusReason: errorName || 'assistant turn failed', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
-      });
+      const turnError = error !== null && typeof error === 'object' ? error : null;
+      const reason = turnError && typeof turnError.name === 'string' && turnError.name
+        ? turnError.name
+        : errorName || 'assistant turn failed';
+      if (!turnError || !isTransientTurnError(turnError)) {
+        await settleGoal({
+          sessionId, directory, goal, status: 'blocked', statusReason: reason, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        });
+        return;
+      }
+      const turnErrorStreak = goal.turnErrorStreak + 1;
+      console.warn(`[session-goal] ${sessionId} transient turn error (${reason}), retrying (${turnErrorStreak}/${TURN_ERROR_RETRY_LIMIT})`);
+      if (turnErrorStreak >= TURN_ERROR_RETRY_LIMIT) {
+        await settleGoal({
+          sessionId, directory, goal, status: 'blocked', statusReason: `${reason}: transient provider error persisted`, tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,
+        });
+        return;
+      }
+      await writeGoal(sessionId, directory, goal.id, () => ({ turnErrorStreak }));
+      armTimer(sessionId, directory, idleQuietMs);
       return;
     }
 
@@ -832,6 +909,8 @@ export const createSessionGoalRuntime = ({
       turnsUsed: current.turnsUsed + 1,
       blockedStreak,
       auditFailStreak,
+      // A successful turn clears any transient-error retry streak.
+      turnErrorStreak: 0,
       statusReason: '',
       ...(audit?.note ? { note: audit.note } : {}),
       ...(audit?.evaluationProviderID ? { evaluationProviderID: audit.evaluationProviderID } : {}),

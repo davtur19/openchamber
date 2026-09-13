@@ -1,4 +1,5 @@
 import { readAuthFile } from '../../opencode/auth.js';
+import { proxyFetch } from '../../small-model/cloud-proxy.js';
 import { deleteLegacyOpenCodeGoCredential } from '../credentials/store.js';
 import { buildResult, getAuthEntry, normalizeAuthEntry, toUsageWindow } from '../utils/index.js';
 
@@ -32,7 +33,7 @@ export const parseOpenCodeGoUsage = (payload) => {
   return windows;
 };
 
-export const fetchOpenCodeGoUsage = async (apiKey, fetchImpl = fetch) => {
+export const fetchOpenCodeGoUsage = async (apiKey, fetchImpl = proxyFetch) => {
   const response = await fetchImpl('https://opencode.ai/zen/go/v1/usage', {
     headers: {
       Accept: 'application/json',

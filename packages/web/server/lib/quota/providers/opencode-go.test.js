@@ -83,7 +83,22 @@ describe('OpenCode Go quota provider', () => {
     fs.writeFileSync(legacyPath, '{not valid json', { mode: 0o600 });
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ usage: { rolling: { percent: 25, resetsAt: '2026-08-12T12:00:00.000Z' } } })));
     vi.stubGlobal('fetch', fetchMock);
-    const result = await fetchQuota();
+    // proxyFetch is the production default: with no OPENCODE_CLOUD_PROXY it
+    // falls back to the global fetch, so scrub the env to keep this hermetic
+    // even on machines where the proxy variable is exported.
+    const previousProxy = process.env.OPENCODE_CLOUD_PROXY;
+    const previousProxyDomains = process.env.OPENCODE_CLOUD_PROXY_DOMAINS;
+    delete process.env.OPENCODE_CLOUD_PROXY;
+    delete process.env.OPENCODE_CLOUD_PROXY_DOMAINS;
+    let result;
+    try {
+      result = await fetchQuota();
+    } finally {
+      if (previousProxy === undefined) delete process.env.OPENCODE_CLOUD_PROXY;
+      else process.env.OPENCODE_CLOUD_PROXY = previousProxy;
+      if (previousProxyDomains === undefined) delete process.env.OPENCODE_CLOUD_PROXY_DOMAINS;
+      else process.env.OPENCODE_CLOUD_PROXY_DOMAINS = previousProxyDomains;
+    }
     expect(result).toMatchObject({ providerId: 'opencode-go', ok: true, configured: true });
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer test-key');
     expect(fs.existsSync(legacyPath)).toBe(false);

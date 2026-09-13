@@ -54,11 +54,20 @@ const lastCall = (mock) => {
 describe('callSmallModel — custom provider config', () => {
   let fetchMock;
   let originalFetch;
+  let originalCloudProxy;
+  let originalCloudProxyDomains;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     originalFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
+    // proxyFetch routes opencode-cloud hostnames through OPENCODE_CLOUD_PROXY
+    // when it is set — scrub it so dispatch tests stay hermetic behind the
+    // mocked fetch instead of tunnelling live through a developer proxy.
+    originalCloudProxy = process.env.OPENCODE_CLOUD_PROXY;
+    originalCloudProxyDomains = process.env.OPENCODE_CLOUD_PROXY_DOMAINS;
+    delete process.env.OPENCODE_CLOUD_PROXY;
+    delete process.env.OPENCODE_CLOUD_PROXY_DOMAINS;
     readConfig.mockReset();
     readConfigLayers.mockReset();
     // Default: OpenCode knows nothing, so resolution stays file-based.
@@ -69,6 +78,10 @@ describe('callSmallModel — custom provider config', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+    if (originalCloudProxy === undefined) delete process.env.OPENCODE_CLOUD_PROXY;
+    else process.env.OPENCODE_CLOUD_PROXY = originalCloudProxy;
+    if (originalCloudProxyDomains === undefined) delete process.env.OPENCODE_CLOUD_PROXY_DOMAINS;
+    else process.env.OPENCODE_CLOUD_PROXY_DOMAINS = originalCloudProxyDomains;
     delete process.env.OPENCHAMBER_TEST_PROVIDER_KEY;
     delete process.env.OPENCHAMBER_TEST_GATEWAY_KEY;
   });
@@ -504,6 +517,71 @@ describe('callSmallModel — custom provider config', () => {
       });
 
       expect(lastCall(fetchMock).init.headers['x-opencode-session']).toBe('ses_conversation');
+    });
+
+    it('leaves cloud hosts on the direct fetch when no cloud proxy is set', async () => {
+      readConfig.mockReturnValue({});
+      fetchMock.mockResolvedValue(ok('ok'));
+
+      await callSmallModel({
+        auth: { 'opencode-go': { type: 'api', key: 'go-key' } },
+        catalog: {
+          'opencode-go': {
+            id: 'opencode-go',
+            api: 'https://opencode.ai/zen/go/v1',
+            models: { utility: { id: 'utility' } },
+          },
+        },
+        workingDirectory: '/proj',
+        providerID: 'opencode-go',
+        modelID: 'utility',
+        prompt: 'hi',
+      });
+
+      expect(lastCall(fetchMock).url).toBe('https://opencode.ai/zen/go/v1/chat/completions');
+    });
+
+    it('routes cloud requests away from direct fetch when OPENCODE_CLOUD_PROXY is set', async () => {
+      process.env.OPENCODE_CLOUD_PROXY = 'http://proxy.invalid:6666';
+      fetchMock.mockClear();
+      readConfig.mockReturnValue({});
+
+      await expect(callSmallModel({
+        auth: { 'opencode-go': { type: 'api', key: 'go-key' } },
+        catalog: {
+          'opencode-go': {
+            id: 'opencode-go',
+            api: 'https://opencode.ai/zen/go/v1',
+            models: { utility: { id: 'utility' } },
+          },
+        },
+        workingDirectory: '/proj',
+        providerID: 'opencode-go',
+        modelID: 'utility',
+        prompt: 'hi',
+      })).rejects.toThrow();
+
+      // The cloud request must not leave through the direct fetch path —
+      // it goes to the proxy tunnel instead (which fails here against a
+      // nonexistent proxy host, proving it never touched direct egress).
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps non-cloud providers on direct fetch even with the proxy set', async () => {
+      process.env.OPENCODE_CLOUD_PROXY = 'http://proxy.invalid:6666';
+      readConfig.mockReturnValue({});
+      fetchMock.mockResolvedValue(ok('ok'));
+
+      await callSmallModel({
+        auth: { mistral: { type: 'api', key: 'mistral-key' } },
+        catalog: CATALOG,
+        workingDirectory: '/proj',
+        providerID: 'mistral',
+        modelID: 'mistral-small-latest',
+        prompt: 'hi',
+      });
+
+      expect(lastCall(fetchMock).url).toBe('https://api.mistral.ai/v1/chat/completions');
     });
 
     it('uses the catalog api field when no config baseURL is set', async () => {

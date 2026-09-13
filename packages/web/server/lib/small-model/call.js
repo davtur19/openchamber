@@ -6,6 +6,7 @@ import { readAuthFile, writeAuthFile } from '../opencode/auth.js';
 import { readConfig, readConfigLayers, isPlainObject } from '../opencode/shared.js';
 import { getCatalogProvider } from './catalog.js';
 import { getAuthEntryForProvider } from './resolve.js';
+import { proxyFetch } from './cloud-proxy.js';
 import { getRuntimeProvider } from './runtime-providers.js';
 
 // Direct, non-streaming text generation against the provider APIs, replicating
@@ -105,7 +106,7 @@ const extractChatgptAccountId = (accessToken) => {
 const refreshOpenaiOauth = async (entry) => {
   if (!openaiRefreshPromise) {
     openaiRefreshPromise = (async () => {
-      const response = await fetch(CODEX_TOKEN_URL, {
+      const response = await proxyFetch(CODEX_TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -168,7 +169,7 @@ const callOpenaiCompatible = async ({ baseURL, headers, modelID, prompt, system,
     systemChars: system?.length ?? 0,
     inputChars: prompt.length + (system?.length ?? 0),
   });
-  const response = await fetch(`${trimmedBase}/chat/completions`, {
+  const response = await proxyFetch(`${trimmedBase}/chat/completions`, {
     method: 'POST',
     headers: mergeHeadersCaseInsensitive({
       'Content-Type': 'application/json',
@@ -249,7 +250,7 @@ const callOpenaiCompatible = async ({ baseURL, headers, modelID, prompt, system,
 
 const callOpenaiResponses = async ({ baseURL, headers, modelID, prompt, system, maxOutputTokens, providerLabel, responseSchema, timeoutMs, signal }) => {
   const trimmedBase = baseURL.replace(/\/+$/, '');
-  const response = await fetch(`${trimmedBase}/responses`, {
+  const response = await proxyFetch(`${trimmedBase}/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -300,7 +301,7 @@ const callOpenaiResponses = async ({ baseURL, headers, modelID, prompt, system, 
 };
 
 const callMessages = async ({ url, headers, modelID, prompt, system, maxOutputTokens, providerLabel, responseSchema, timeoutMs, signal }) => {
-  const response = await fetch(url, {
+  const response = await proxyFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -373,7 +374,7 @@ const callAnthropic = async ({ apiKey, baseURL, modelID, prompt, system, maxOutp
 
 const getCopilotEndpoint = async ({ baseURL, headers, modelID }) => {
   const trimmedBase = baseURL.replace(/\/+$/, '');
-  const response = await fetch(`${trimmedBase}/models`, {
+  const response = await proxyFetch(`${trimmedBase}/models`, {
     headers: {
       Accept: 'application/json',
       ...headers,
@@ -422,7 +423,7 @@ const callGoogle = async ({ apiKey, modelID, prompt, system, maxOutputTokens, re
   const thinkingConfig = lowerModelID.startsWith('gemini-3')
     ? { thinkingLevel: lowerModelID.includes('flash') ? 'minimal' : 'low' }
     : lowerModelID.startsWith('gemini-2') ? { thinkingBudget: 0 } : null;
-  const response = await fetch(url, {
+  const response = await proxyFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -456,7 +457,7 @@ const callGoogle = async ({ apiKey, modelID, prompt, system, maxOutputTokens, re
 // ChatGPT-plan traffic goes to the codex backend, which only speaks the
 // streaming Responses API — collect the output_text deltas from the SSE body.
 const callCodexResponses = async ({ accessToken, accountId, modelID, prompt, system, timeoutMs, signal }) => {
-  const response = await fetch(CODEX_RESPONSES_URL, {
+  const response = await proxyFetch(CODEX_RESPONSES_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

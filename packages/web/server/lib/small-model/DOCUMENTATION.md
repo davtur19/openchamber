@@ -91,6 +91,14 @@ other runtime API.
   a blocker instead of a raw 500 message.
 - `call.js` — wire formats and per-provider auth, replicating OpenCode's
   plugin auth loaders:
+  - Every provider call goes through `proxyFetch` (`cloud-proxy.js`), which
+    mirrors OpenCode's own `FetchProxy` rule: hostnames in
+    `OPENCODE_CLOUD_PROXY_DOMAINS` (default `opencode.ai`, `*.zenmux.ai`-style
+    cloud hosts) leave through `OPENCODE_CLOUD_PROXY`, everything else keeps
+    using direct `fetch`. Without this, goal audits and other server-side
+    small-model calls egressed from the datacenter IP while chat turns went
+    through the proxy, splitting one quota across two source addresses.
+    When the variable is unset the wrapper is a no-op passthrough.
   - OpenCode-hosted providers receive `x-opencode-session`. Session-backed
     features reuse the real OpenCode session id, walkthrough retries reuse the
     walkthrough cache key, and standalone one-shot actions receive a fresh

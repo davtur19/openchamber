@@ -533,6 +533,7 @@ export const LOCAL_DEVICE_KEYS = [
   'contextRailOrder',
   'contextRailHiddenSurfaces',
   'contextEditorTreeVisible',
+  'contextEditorVisible',
   'contextEditorTreeWidth',
   'notesPanelHeight',
   'workStatusExpandedSections',

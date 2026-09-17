@@ -1304,7 +1304,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         setMessage('');
         confirmedMentionsRef.current.clear();
         if (composerAttachments.length > 0) {
-            clearAttachedFiles();
+            clearAttachedFiles(chatDraftIdentity);
         }
         setLinkedIssue(null);
         setLinkedPr(null);
@@ -1340,7 +1340,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 useInputStore.getState().setPendingInputText(messageToQueue, 'append');
             }
             if (composerAttachments.length > 0) {
-                useInputStore.getState().setAttachedFiles([...useInputStore.getState().attachedFiles, ...composerAttachments]);
+                useInputStore.getState().restoreAttachedFiles(composerAttachments, chatDraftIdentity);
             }
             if (draftTarget && drafts.length > 0) {
                 useInlineCommentDraftStore.getState().restoreDrafts(draftTarget, drafts);
@@ -1354,7 +1354,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         recordLinkedReferences(queueSessionId, queueTarget.directory, linked);
-        }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, inlineDraftTarget, consumeDrafts, linkedIssue, linkedPr, linkedLinearIssue, linkedGuestIssue, scrollToLatest, clearAttachedFiles, isMobile, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
+        }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, inlineDraftTarget, consumeDrafts, linkedIssue, linkedPr, linkedLinearIssue, linkedGuestIssue, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
 
     /** Put the context a queued message was captured with back on the composer chips. */
     const restoreQueuedContext = React.useCallback((context: readonly QueuedContextPart[]) => {
@@ -1751,10 +1751,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             }
             restoreComposerText();
             if (!queuedOnly && attachedFiles.length > 0) {
-                const inputState = useInputStore.getState();
-                const present = new Set(inputState.attachedFiles.map((attachment) => attachment.id));
-                const missing = attachedFiles.filter((attachment) => !present.has(attachment.id));
-                if (missing.length > 0) inputState.setAttachedFiles([...inputState.attachedFiles, ...missing]);
+                useInputStore.getState().restoreAttachedFiles(attachedFiles, chatDraftIdentity);
             }
         };
 
@@ -1821,7 +1818,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             persistDraftImmediately(chatDraftIdentity, '');
             messageHistory.reset();
             if (attachedFiles.length > 0) {
-                clearAttachedFiles();
+                clearAttachedFiles(chatDraftIdentity);
             }
             // Close expanded input overlay when submitting
             if (!isBtwActive) setExpandedInput(false);
@@ -2050,14 +2047,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             if (normalized.includes('payload too large') || normalized.includes('413') || normalized.includes('entity too large')) {
                 toast.error(t('chat.chatInput.toast.attachmentsTooLarge'));
                 if (allAttachments.length > 0) {
-                    useInputStore.getState().setAttachedFiles(allAttachments);
+                    useInputStore.getState().restoreAttachedFiles(allAttachments, chatDraftIdentity);
                 }
                 return;
             }
 
             if (isSoftNetworkError) {
                 if (allAttachments.length > 0) {
-                    useInputStore.getState().setAttachedFiles(allAttachments);
+                    useInputStore.getState().restoreAttachedFiles(allAttachments, chatDraftIdentity);
                     toast.error(t('chat.chatInput.toast.sendAttachmentsFailed'));
                 }
                 return;
@@ -2065,14 +2062,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
             if (normalized.includes('runtime changed')) {
                 if (allAttachments.length > 0) {
-                    useInputStore.getState().setAttachedFiles(allAttachments);
+                    useInputStore.getState().restoreAttachedFiles(allAttachments, chatDraftIdentity);
                 }
                 toast.error(t('chat.chatInput.toast.messageSendFailed'));
                 return;
             }
 
             if (allAttachments.length > 0) {
-                useInputStore.getState().setAttachedFiles(allAttachments);
+                useInputStore.getState().restoreAttachedFiles(allAttachments, chatDraftIdentity);
             }
             toast.error(rawMessage || t('chat.chatInput.toast.messageSendFailed'));
         });
@@ -2507,6 +2504,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         files: File[],
         leadingText: string = '',
     ): Promise<void> => {
+        const attachmentDraftKey = useInputStore.getState().attachmentDraftKey;
         const imageFiles = files.filter((file) => file.type.startsWith('image/'));
         const otherFiles = files.filter((file) => !file.type.startsWith('image/'));
 
@@ -2547,6 +2545,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             } finally {
                 pendingPastedAttachmentFilenamesRef.current.delete(filename);
             }
+            if (useInputStore.getState().attachmentDraftKey !== attachmentDraftKey) return;
         }
 
         const attachedOtherNames: string[] = [];
@@ -2559,6 +2558,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             } catch (error) {
                 console.error('File attach failed', error);
             }
+            if (useInputStore.getState().attachmentDraftKey !== attachmentDraftKey) return;
         }
         insertCitation(attachedOtherNames, '');
 
@@ -3110,6 +3110,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const attachFiles = React.useCallback(async (files: FileList | File[]) => {
         if (isBtwActive) return;
+        const attachmentDraftKey = useInputStore.getState().attachmentDraftKey;
         const list = Array.isArray(files) ? files : Array.from(files);
         let attached = false;
 
@@ -3119,6 +3120,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             } catch (error) {
                 console.error('File attach failed', error);
             }
+            if (useInputStore.getState().attachmentDraftKey !== attachmentDraftKey) return;
         }
         if (list.length > 0 && !attached) {
             toast.error(t('chat.chatInput.toast.attachFileFailed'));

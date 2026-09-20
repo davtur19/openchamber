@@ -93,8 +93,13 @@ import { createApnsRuntime } from './lib/notifications/apns-runtime.js';
 import { createNotificationTemplateRuntime } from './lib/notifications/template-runtime.js';
 import { createPermissionAutoAcceptRuntime } from './lib/permission-auto-accept/runtime.js';
 import { createMessageQueueRuntime } from './lib/message-queue/runtime.js';
+import { createRoutingRuntime } from './lib/routing/runtime.js';
 import { createGracefulShutdownRuntime } from './lib/opencode/shutdown-runtime.js';
 import { stopAllGuestServices } from './lib/guests/service.js';
+import { findInstalledGuest } from './lib/guests/catalog.js';
+import { extensionsPersistPath } from './lib/guests/persist.js';
+import { createGuestSurfaceRuntime } from './lib/guests/surface.js';
+import { BROWSER_PROVIDER_IDLE_MS } from '@openchamber/sdk';
 import { createProjectConfigRuntime } from './lib/projects/project-config.js';
 import { migrateLegacyUserDirs } from './lib/data-dir-migration.js';
 import { createProjectContextRuntime } from './lib/project-context/runtime.js';
@@ -110,6 +115,7 @@ import { createRelayService } from './lib/relay/service.js';
 import { createRelayHostLock } from './lib/relay/host-lock.js';
 import { createAgentToolRuntime } from './lib/agent-tool/runtime.js';
 import { createBrowserControlBroker } from './lib/browser-control/broker.js';
+import { createBrowserControlRouter } from './lib/browser-control/provider.js';
 import { createDevServerScanner } from './lib/dev-servers/routes.js';
 import { createDevTunnelRuntime } from './lib/dev-tunnel/runtime.js';
 import { registerBrowserControlRoutes } from './lib/browser-control/routes.js';
@@ -582,6 +588,9 @@ let runtimeManagedRemoteTunnelToken = '';
 let runtimeManagedRemoteTunnelHostname = '';
 let terminalRuntime = null;
 let dictationRuntime = null;
+// Built once the HTTP server exists (it hooks `upgrade`); the browser
+// provider router is built earlier and reaches it through this holder.
+let guestSurfaceRuntime = null;
 let messageStreamRuntime = null;
 const userProvidedOpenCodePassword = hmrStateRuntime.getUserProvidedOpenCodePassword(hmrState);
 const initialOpenCodeAuthState = hmrStateRuntime.resolveOpenCodeAuthFromState({
@@ -907,6 +916,24 @@ const globalMessageStreamHub = createGlobalMessageStreamHub({
   deltaCoalesceWindowMs: resolveDeltaCoalesceWindowMs(),
 });
 
+// OpenChamber-owned events for the UI control stream (SSE) plus the WS fan-out.
+// OpenCode's /global/event proxy cannot carry them.
+const broadcastOpenChamberUiEvent = createGlobalUiEventBroadcaster({
+  sseClients: uiOpenChamberEventClients,
+  wsClients: uiNotificationWsClients,
+  writeSseEvent,
+});
+
+// Jev model routing and the permission safety net. Dark unless
+// OPENCHAMBER_ROUTING_ENABLE is set; every failure keeps the user's own model
+// or the auto-accept reply it was asked about.
+const routingRuntime = createRoutingRuntime({
+  dataDir: OPENCHAMBER_DATA_DIR,
+  buildOpenCodeUrl,
+  getOpenCodeAuthHeaders,
+  broadcastGlobalUiEvent: broadcastOpenChamberUiEvent,
+});
+
 const permissionAutoAcceptRuntime = createPermissionAutoAcceptRuntime({
   globalEventHub: globalMessageStreamHub,
   buildOpenCodeUrl,
@@ -914,6 +941,8 @@ const permissionAutoAcceptRuntime = createPermissionAutoAcceptRuntime({
   readSettingsFromDiskMigrated,
   persistSettings,
   broadcastGlobalUiEvent,
+  evaluatePermission: (permission, directory) => routingRuntime.evaluatePermission(permission, directory),
+  onPermissionReplied: (permissionId) => routingRuntime.forgetPermission(permissionId),
 });
 permissionAutoAcceptRuntime.start();
 notificationTriggerRuntime.setGetIsSessionAutoAccepting(
@@ -927,13 +956,8 @@ const messageQueueRuntime = createMessageQueueRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
   sessionKnowledgeRuntime,
-  // OpenCode's /global/event SSE proxy cannot carry OpenChamber-owned events.
-  // Use the shared control stream for SSE clients and the existing WS fan-out.
-  broadcastGlobalUiEvent: createGlobalUiEventBroadcaster({
-    sseClients: uiOpenChamberEventClients,
-    wsClients: uiNotificationWsClients,
-    writeSseEvent,
-  }),
+  broadcastGlobalUiEvent: broadcastOpenChamberUiEvent,
+  resolvePromptBody: (body, target) => routingRuntime.resolvePromptBody(body, target),
   onPromptSent: (sessionId) => sessionRuntime.markUserMessageSent(sessionId),
   dataDir: OPENCHAMBER_DATA_DIR,
 });
@@ -1395,6 +1419,7 @@ const openChamberSessionService = createOpenChamberSessionService({
   waitForOpenCodeReady,
   emitSessionCreatedEvent,
   sessionKnowledgeRuntime,
+  resolvePromptBody: (body, target) => routingRuntime.resolvePromptBody(body, target),
 });
 // Browser actions are published to whichever OpenChamber clients are connected;
 // the one owning the browser panel answers. `emitRequest` returns the number of
@@ -1427,6 +1452,38 @@ const browserControlBroker = createBrowserControlBroker({
   },
 });
 
+/**
+ * Tells every client the selected browser provider was dropped back to the
+ * in-app browser, so Settings shows the change and the user hears why.
+ */
+const emitBrowserProviderResetEvent = ({ guestId, guestName }) => {
+  for (const client of uiOpenChamberEventClients) {
+    try {
+      writeSseEvent(client, {
+        type: 'openchamber:browser-provider-reset',
+        properties: { guestId, guestName },
+      });
+    } catch {
+      uiOpenChamberEventClients.delete(client);
+    }
+  }
+};
+// Every browser action passes through here: the in-app view by default, or an
+// extension service chosen in Settings → OpenChamber Tools.
+const browserControlRouter = createBrowserControlRouter({
+  broker: browserControlBroker,
+  readSettings: () => readSettingsFromDiskMigrated(),
+  persistSettings: (changes) => persistSettings(changes),
+  findGuest: (id) => findInstalledGuest(id, extensionsPersistPath(OPENCHAMBER_DATA_DIR)),
+  persistPath: extensionsPersistPath(OPENCHAMBER_DATA_DIR),
+  emitProviderReset: emitBrowserProviderResetEvent,
+  createId: () => `browser-${crypto.randomUUID()}`,
+  surfaceControl: {
+    userControls: (guestId) => guestSurfaceRuntime?.userControls(guestId) ?? false,
+    noteAgentActivity: (guestId) => guestSurfaceRuntime?.noteAgentActivity(guestId),
+  },
+});
+
 const openChamberControlService = createOpenChamberControlService({
   readSettingsFromDiskMigrated,
   sanitizeProjects,
@@ -1435,7 +1492,7 @@ const openChamberControlService = createOpenChamberControlService({
   waitForOpenCodeReady,
   sessionService: openChamberSessionService,
   scheduledTaskService,
-  browserControl: browserControlBroker,
+  browserControl: browserControlRouter,
   agentMemoryActions: createAgentMemoryActions({
     agentMemoryRuntime,
     createError: (message, status) => new OpenChamberControlError(message, status),
@@ -1543,6 +1600,8 @@ async function main(options = {}) {
       const address = server?.address?.();
       return typeof address === 'object' && address ? address.port : null;
     },
+    // A pipe listener reports a string here, which has no address to bind back to.
+    getActiveHost: () => server?.address?.()?.address ?? null,
   });
   systemPromptRuntime = createSystemPromptRuntime({
     fsPromises,
@@ -1951,6 +2010,10 @@ async function main(options = {}) {
     createFsSearchRuntime: createFsSearchRuntimeFactory,
     openchamberDataDir: OPENCHAMBER_DATA_DIR,
     openchamberVersion: OPENCHAMBER_VERSION,
+    onGuestDeactivated: async (event) => {
+      guestSurfaceRuntime?.endForGuest(event.guestId);
+      return browserControlRouter.handleGuestDeactivated(event);
+    },
     builtInExtensionsDir: options.builtInExtensionsDir,
     openchamberUserConfigRoot: OPENCHAMBER_USER_CONFIG_ROOT,
     managedChatsRoot: OPENCHAMBER_CHATS_DIR,
@@ -1994,6 +2057,18 @@ async function main(options = {}) {
     writeSseEvent,
     permissionAutoAcceptRuntime,
     messageQueueRuntime,
+    routingRuntime,
+  });
+
+  // After bootstrap: the upgrade gate needs the real UI auth controller.
+  guestSurfaceRuntime = createGuestSurfaceRuntime({
+    server,
+    uiAuthController,
+    isRequestOriginAllowed,
+    rejectWebSocketUpgrade,
+    persistPath: extensionsPersistPath(OPENCHAMBER_DATA_DIR),
+    findGuest: (id) => findInstalledGuest(id, extensionsPersistPath(OPENCHAMBER_DATA_DIR)),
+    idleStopMs: BROWSER_PROVIDER_IDLE_MS,
   });
 
   const startupPipelineResult = await startupPipelineRuntime.run({
@@ -2110,6 +2185,11 @@ async function main(options = {}) {
         dictationRuntime?.stop?.();
       } catch {
         // best-effort shutdown of the dictation worker
+      }
+      try {
+        guestSurfaceRuntime?.stop();
+      } catch {
+        // best-effort: viewers are told the host is going away
       }
       // Guest services are child processes; leaving before SIGTERM lands
       // (and the SIGKILL fallback fires) orphans them on the user's machine.

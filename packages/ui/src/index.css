@@ -3,12 +3,13 @@
 @import "./styles/design-system.css";
 @import "./styles/typography.css";
 @import "./styles/mobile.css";
-/* Load KaTeX styles eagerly with the main bundle. Importing them inside the
-   lazy MarkdownRendererImpl chunk meant a stylesheet was injected late on the
-   first markdown render of a session; that late injection triggered a style
-   recalc during which the layered `.chat-message-column` width clamp briefly
-   lost, flashing message text to full width before it snapped back. */
-@import "katex/dist/katex.min.css";
+/* KaTeX styles are loaded eagerly through `styles/katex-css` (a JS import) at
+   every app entry point. Keeping them eager avoids a late stylesheet injection
+   on the first markdown render, whose style recalc briefly lost the layered
+   `.chat-message-column` width clamp and flashed message text to full width.
+   A JS import is required because Lightning CSS inlines a CSS `@import`
+   without resolving the relative `url(fonts/...)` references, leaving the
+   KaTeX font files unbundled (openchamber/openchamber#1880). */
 @source "./**/*.{ts,tsx,css}";
 
 /* KaTeX theme overrides for light/dark mode */
@@ -89,14 +90,8 @@ button,
   color: var(--interactive-selection-foreground);
 }
 
-/* Quoted chat fragment kept visibly highlighted while its comment input is
-   open (the native selection collapses once the input takes focus). The
-   rectangles come from the selection's own client rects and paint in the
-   selection colour, so shape and shade both match the native selection that
-   was just showing; the colour is translucent because these rectangles sit
-   above the text. */
+/* These rectangles sit above glyphs, so the fill must remain translucent. */
 .oc-chat-comment-rect {
-  /* Rectangles paint above glyphs, unlike native selection. */
   background-color: color-mix(in srgb, var(--interactive-selection) 35%, transparent);
 }
 
@@ -246,7 +241,7 @@ button,
 }
 
 :root.vscode-runtime [data-chat-input="true"] .cm-placeholder {
-  color: color-mix(in srgb, var(--vscode-input-placeholderForeground, var(--muted-foreground)) 65%, transparent);
+  color: var(--vscode-input-placeholderForeground, var(--muted-foreground));
 }
 
 /* Match chat footer background to input in WebKit to avoid dual-tone hover/focus */
@@ -1797,6 +1792,19 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   animation: oc-busy-pulse 1.2s steps(3, jump-none) infinite;
 }
 
+@keyframes oc-status-logo {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-status-logo {
+  animation: oc-status-logo 4s steps(10, jump-none) infinite;
+}
+
 @keyframes navrail-dot-wave {
   0%, 100% {
     transform: scale(0.72);
@@ -1918,7 +1926,8 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   }
 
   .animate-busy-pulse,
-  .animate-busy-wave {
+  .animate-busy-wave,
+  .animate-status-logo {
     animation: none;
   }
 

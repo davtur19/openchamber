@@ -37,6 +37,7 @@ import { useViewportStore, viewportSessionKey } from '@/sync/viewport-store';
 import { DraggableSessionRow } from '../folders/sessionFolderDnd';
 import { useSessionRowOrderRegistry } from './sessionRowOrder';
 import { canShowSessionWorktreeMenu, getSessionWorktreeMenuDisabled, nodeContainsSessionId, nodeHasPinnedMembershipChange, selectQuestionBadgeSessionScopes, selectRowBadgeVisibilityClass } from './sessionNodeItemUtils';
+import { useSessionRowMenuState } from './useSessionRowMenuState';
 import type { SessionNode } from '../types';
 import { formatProjectLabel, formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText } from '../utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -53,7 +54,7 @@ import { sessionGoalStatusColor, sessionGoalStatusLabelKey } from '@/lib/session
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { getChatsRootFromDirectory } from '@/lib/chatDirectories';
-import { parseMultiRunSessionTitle } from '@/lib/multirun/title';
+import { getMultiRunIdentity, sameMultiRunIdentity } from '@/lib/multirun/identity';
 import { MultiRunFusionDialog } from '@/components/multirun/MultiRunFusionDialog';
 import { FusionIcon } from '@/components/icons/FusionIcon';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
@@ -529,13 +530,30 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const sessionTimestamp = resolvedSession.time?.updated || resolvedSession.time?.created || Date.now();
   const sessionUpdatedLabel = formatSessionDateLabel(sessionTimestamp);
   const sessionCompactUpdatedLabel = formatSessionCompactDateLabel(sessionTimestamp);
-  const isMenuOpen = openSidebarMenuKey === menuInstanceKey;
-  const [legacyContextMenuOpen, setLegacyContextMenuOpen] = React.useState(false);
-  const isContextMenuOpen = contextMenuInstanceKey
-    ? openSidebarMenuKey === contextMenuInstanceKey
-    : legacyContextMenuOpen;
+  const {
+    isMenuOpen,
+    isContextMenuOpen,
+    handleMenuOpenChange,
+    handleContextMenuOpenChange,
+    handleMenuOpenChangeComplete,
+    toggleMenu,
+  } = useSessionRowMenuState({
+    menuInstanceKey,
+    contextMenuInstanceKey,
+    openSidebarMenuKey,
+    setOpenSidebarMenuKey,
+    hasDeferredCloseWork: () => pendingRenameRef.current !== null,
+    onCloseComplete: () => {
+      if (!pendingRenameRef.current) return;
+      const { id, title } = pendingRenameRef.current;
+      pendingRenameRef.current = null;
+      setEditingId(id);
+      setEditingRowKey(sessionRowKey);
+      setEditTitle(title);
+    },
+  });
   const isSessionMenuOpen = isMenuOpen || isContextMenuOpen;
-  const isMultiRunLikeSession = React.useMemo(() => parseMultiRunSessionTitle(resolvedSession.title) !== null, [resolvedSession.title]);
+  const isMultiRunLikeSession = React.useMemo(() => getMultiRunIdentity(resolvedSession) !== null, [resolvedSession]);
   const [fusionDialogOpen, setFusionDialogOpen] = React.useState(false);
 
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
@@ -627,6 +645,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const handleGuestSessionAction = React.useCallback((entry: GuestActionEntry) => {
     void runGuestSessionAction({
       entry,
+      t,
       session: { id: session.id, title: resolvedSession.title, directory: sessionDirectory },
       loadRecords: () => (sessionDirectory
         ? loadExportRecords({ directory: sessionDirectory, sessionID: session.id }).catch(() => null)
@@ -846,46 +865,10 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     ? <Icon name="error-warning" className="h-4 w-4 text-status-warning" />
     : null;
 
-  const handleMenuOpenChange = (open: boolean) => {
-    if (open) {
-      setLegacyContextMenuOpen(false);
-      setOpenSidebarMenuKey(menuInstanceKey);
-      return;
-    }
-    if (!pendingRenameRef.current && openSidebarMenuKey === menuInstanceKey) {
-      setOpenSidebarMenuKey(null);
-    }
-  };
-
-  const handleMenuOpenChangeComplete = (open: boolean) => {
-    if (!open && pendingRenameRef.current) {
-      const { id, title } = pendingRenameRef.current;
-      pendingRenameRef.current = null;
-      setEditingId(id);
-      setEditingRowKey(sessionRowKey);
-      setEditTitle(title);
-    }
-    if (!open && (openSidebarMenuKey === menuInstanceKey || openSidebarMenuKey === contextMenuInstanceKey)) {
-      setOpenSidebarMenuKey(null);
-    }
-  };
-
-  const handleContextMenuOpenChange = (open: boolean) => {
-    if (!contextMenuInstanceKey) {
-      setLegacyContextMenuOpen(open);
-      return;
-    }
-    if (open) {
-      setOpenSidebarMenuKey(contextMenuInstanceKey);
-    } else if (!pendingRenameRef.current && openSidebarMenuKey === contextMenuInstanceKey) {
-      setOpenSidebarMenuKey(null);
-    }
-  };
-
   const handleMenuTriggerClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setOpenSidebarMenuKey(isMenuOpen ? null : menuInstanceKey);
+    toggleMenu();
   };
 
   const handleMenuTriggerPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -1827,6 +1810,7 @@ const areSessionRenderSemanticsEqual = (prev: Session, next: Session): boolean =
   && prev.time?.created === next.time?.created
   && prev.time?.updated === next.time?.updated
   && prev.time?.archived === next.time?.archived
+  && sameMultiRunIdentity(prev, next)
 );
 
 // Returns the name of the first prop whose change requires a render, or null

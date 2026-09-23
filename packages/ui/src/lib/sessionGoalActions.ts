@@ -1,4 +1,5 @@
 import { abortCurrentOperation, patchSessionMetadata } from '@/sync/session-actions';
+import type { Metadata } from '@/lib/opencode/model';
 import { distillGoalObjective } from '@/lib/smallModel';
 import { formatMessage, useI18nStore } from '@/lib/i18n';
 import { toast } from '@/components/ui';
@@ -13,7 +14,7 @@ import {
 const getObjectiveCharLimit = (): number =>
   useUIStore.getState().sessionGoalObjectiveCharLimit || SESSION_GOAL_OBJECTIVE_CHAR_LIMIT;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+const isRecord = (value: unknown): value is Metadata =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 const createGoalId = (): string =>
@@ -22,7 +23,7 @@ const createGoalId = (): string =>
 const writeGoal = (
   sessionId: string,
   directory: string | undefined,
-  update: (currentGoal: Record<string, unknown> | null) => Record<string, unknown> | null,
+  update: (currentGoal: Metadata | null) => Metadata | null,
 ) =>
   patchSessionMetadata(sessionId, directory, (metadata) => {
     const namespace = isRecord(metadata.openchamber) ? metadata.openchamber : {};
@@ -120,7 +121,7 @@ export async function setSessionGoal(
     : null;
   const objectiveFile = await writeObjectiveFile(sessionId, objective);
   const now = Date.now();
-  await writeGoal(sessionId, directory, (currentGoal) => {
+  await writeGoal(sessionId, directory, (currentGoal): Metadata => {
     if (existing && currentGoal && currentGoal.id === existing.id && existing.status !== 'complete') {
       // Edit in place: keep accounting, reactivate, clear stale audit state.
       return {

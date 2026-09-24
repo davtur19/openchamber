@@ -6,7 +6,7 @@ const cli = (output, code = 0) => ({ binary: process.execPath, args: ['-e', `con
 describe('OpenCode compatibility', () => {
   it('recognizes both CLI version formats before launching a server', async () => {
     expect(await readOpenCodeCliVersion(cli('1.18.32'))).toBe('1.18.32');
-    expect(await requireOpenCodeV2(cli('opencode v2.0.15'))).toBe('2.0.15');
+    expect(await requireOpenCodeV2(cli('opencode v2.0.16'))).toBe('2.0.16');
     await expect(requireOpenCodeV2(cli('2.0.14'))).rejects.toBeInstanceOf(UnsupportedOpenCodeVersionError);
     await expect(requireOpenCodeV2(cli('1.18.32'))).rejects.toBeInstanceOf(UnsupportedOpenCodeVersionError);
     await expect(readOpenCodeCliVersion(cli('2.0.14', 1))).rejects.toThrow();
@@ -40,13 +40,13 @@ describe('OpenCode compatibility', () => {
   });
 
   it('accepts 2.x from the minimum on and nothing older or of another major', () => {
-    for (const version of ['2.0.15', '2.0.16', '2.1.0', '2.0.15-beta.1']) {
+    for (const version of ['2.0.16', '2.1.0', '2.0.16-beta.1']) {
       expect(describeOpenCodeCompatibility(version, 'managed', true).state).toBe('compatible');
     }
-    for (const version of ['1.18.32', '2.0.14', '2.0.9', '3.0.0']) {
+    for (const version of ['1.18.32', '2.0.15', '2.0.14', '2.0.9', '3.0.0']) {
       expect(describeOpenCodeCompatibility(version, 'managed', true).state).toBe('incompatible');
     }
-    expect(describeOpenCodeCompatibility('2.0.14', 'managed', true).minimumVersion).toBe('2.0.15');
+    expect(describeOpenCodeCompatibility('2.0.14', 'managed', true).minimumVersion).toBe('2.0.16');
   });
 
   it('only offers installation for a known managed CLI older than the minimum', () => {
@@ -55,7 +55,7 @@ describe('OpenCode compatibility', () => {
     for (const installation of ['external', 'bundled']) {
       expect(describeOpenCodeCompatibility('1.18.32', installation, true).canInstall).toBe(false);
     }
-    for (const version of [null, '2.0.15', '3.0.0']) {
+    for (const version of [null, '2.0.16', '3.0.0']) {
       expect(describeOpenCodeCompatibility(version, 'managed', true).canInstall).toBe(false);
     }
   });

@@ -11,7 +11,7 @@ let homeDirectory;
 let binary;
 const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 const cli = (version) => '#!/bin/sh\nprintf "%s\\n" "opencode v' + version + '"\n';
-const run = (script, version = '2.0.15') => installOpenCodeV2({
+const run = (script, version = '2.0.16') => installOpenCodeV2({
   homeDirectory,
   fetchImpl: async (url) => url.includes('registry.npmjs.org')
     ? Response.json({ version })
@@ -31,13 +31,13 @@ describe('OpenCode v2 installation', () => {
     const script = `#!/bin/bash
 set -eu
 test "$1" = "--version"
-test "$2" = "2.0.15"
+test "$2" = "2.0.16"
 test "$3" = "--no-modify-path"
-printf %s ${quote(cli('2.0.15'))} > ${quote(binary)}
+printf %s ${quote(cli('2.0.16'))} > ${quote(binary)}
 chmod 755 ${quote(binary)}
 `;
     expect(await run(script)).toBe(binary);
-    expect(await readOpenCodeCliVersion({ binary, args: [] })).toBe('2.0.15');
+    expect(await readOpenCodeCliVersion({ binary, args: [] })).toBe('2.0.16');
     await expect(fs.stat(path.join(path.dirname(binary), '.openchamber-install'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
@@ -63,7 +63,7 @@ chmod 755 ${quote(binary)}
   });
 
   describe('on Windows', () => {
-    const TARBALL = 'https://registry.npmjs.org/@opencode/cli-windows-x64-baseline/-/cli-windows-x64-baseline-2.0.15.tgz';
+    const TARBALL = 'https://registry.npmjs.org/@opencode/cli-windows-x64-baseline/-/cli-windows-x64-baseline-2.0.16.tgz';
     let exe;
     const integrityOf = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
     // The platform package keeps its binary at package/bin/opencode.exe. Here it is a
@@ -82,8 +82,8 @@ chmod 755 ${quote(binary)}
       platform: 'win32',
       tarCommand: 'tar',
       fetchImpl: async (url) => {
-        if (url.endsWith('/@opencode%2Fcli/latest')) return Response.json({ version: '2.0.15' });
-        if (url.endsWith('/@opencode%2Fcli-windows-x64-baseline/2.0.15')) return Response.json({ dist: { tarball: TARBALL, integrity } });
+        if (url.endsWith('/@opencode%2Fcli/latest')) return Response.json({ version: '2.0.16' });
+        if (url.endsWith('/@opencode%2Fcli-windows-x64-baseline/2.0.16')) return Response.json({ dist: { tarball: TARBALL, integrity } });
         if (url === TARBALL) return new Response(archive);
         return new Response(null, { status: 404 });
       },
@@ -95,14 +95,14 @@ chmod 755 ${quote(binary)}
     });
 
     it('installs the verified platform package without the bash installer', async () => {
-      expect(await runWindows(await pack('2.0.15'))).toBe(exe);
-      expect(await readOpenCodeCliVersion({ binary: exe, args: [] })).toBe('2.0.15');
+      expect(await runWindows(await pack('2.0.16'))).toBe(exe);
+      expect(await readOpenCodeCliVersion({ binary: exe, args: [] })).toBe('2.0.16');
       expect(await readOpenCodeCliVersion({ binary, args: [] })).toBe('1.18.30');
       await expect(fs.stat(path.join(path.dirname(exe), '.openchamber-install'))).rejects.toMatchObject({ code: 'ENOENT' });
     });
 
     it('rejects a package that does not match its published integrity before touching the binary', async () => {
-      const archive = await pack('2.0.15');
+      const archive = await pack('2.0.16');
       await expect(runWindows(archive, integrityOf(Buffer.from('other')))).rejects.toThrow('integrity');
       expect(await readOpenCodeCliVersion({ binary: exe, args: [] })).toBe('1.18.30');
       await expect(fs.stat(path.join(path.dirname(exe), '.openchamber-install'))).rejects.toMatchObject({ code: 'ENOENT' });

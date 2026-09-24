@@ -11,7 +11,7 @@ const legacyHealthSchema = z.object({ version: versionSchema, healthy: z.boolean
  * Oldest OpenCode OpenChamber runs against. 2.0.15 added `PATCH /api/session`
  * metadata, which now holds every OpenChamber per-session record.
  */
-const MINIMUM_OPENCODE_VERSION = '2.0.15';
+const MINIMUM_OPENCODE_VERSION = '2.0.16';
 
 const releaseParts = (version) => version.split(/[-+]/, 1)[0].split('.').map(Number);
 

@@ -83,6 +83,12 @@ test('bootstrap stays unmounted while checking, and starts once for v2', async (
   respond = () => new Promise<Response>((resolve) => { complete = resolve; });
   await render();
   expect(mounts).toBe(0);
+  const splash = host.firstElementChild;
+  expect(splash?.classList.contains('fixed')).toBe(true);
+  expect(splash?.classList.contains('inset-0')).toBe(true);
+  expect(splash?.className).toContain('--splash-background');
+  expect(splash?.querySelector('svg')?.getAttribute('width')).toBe('120');
+  expect(host.querySelectorAll('svg')).toHaveLength(1);
   await act(async () => complete(version('2.0.14')));
   expect(mounts).toBe(1);
   expect(host.textContent).toContain('Application mounted');
@@ -215,4 +221,81 @@ test('a check again result from the previous runtime cannot replace the current 
   expect(host.textContent).toContain('1.18.32');
   expect(host.textContent).not.toContain('1.18.31');
   expect(mounts).toBe(0);
+});
+
+test('desktop recovery keeps the instance switcher reachable before app bootstrap', async () => {
+  Object.defineProperty(window, '__OPENCHAMBER_ELECTRON__', { configurable: true, value: { runtime: 'electron' } });
+  await render();
+  const button = host.querySelector<HTMLButtonElement>('[data-oc-host-switcher]');
+  expect(button?.textContent).toContain('Switch instance');
+  expect(button?.disabled).toBe(false);
+  expect(button?.closest('.app-region-no-drag')).not.toBeNull();
+  expect(mounts).toBe(0);
+});
+
+test('browser recovery does not offer the desktop instance switcher', async () => {
+  await render();
+  expect(host.querySelector('[data-oc-host-switcher]')).toBeNull();
+});
+
+test('a 2.x below the minimum asks for an update to that minimum, not for v2', async () => {
+  respond = async () => Response.json({
+    state: 'incompatible',
+    version: '2.0.14',
+    installation: 'managed',
+    minimumVersion: '2.0.15',
+    canInstall: true,
+  });
+  await render();
+  expect(mounts).toBe(0);
+  expect(host.textContent).toContain('Update OpenCode');
+  expect(host.textContent).toContain('requires OpenCode 2.0.15 or newer');
+  expect(host.textContent).toContain('2.0.15+');
+  expect(host.textContent).not.toContain('OpenCode v2 required');
+});
+
+const desktopReadiness = (invoke: () => Promise<boolean>) => {
+  Object.defineProperties(window, {
+    __OPENCHAMBER_ELECTRON__: { configurable: true, value: { runtime: 'electron' } },
+    __OPENCHAMBER_LOCAL_ORIGIN__: { configurable: true, value: 'http://127.0.0.1:3901' },
+    __OPENCHAMBER_API_BASE_URL__: { configurable: true, writable: true, value: 'http://127.0.0.1:3901' },
+    __OPENCHAMBER_DESKTOP__: { configurable: true, value: { invoke } },
+  });
+};
+
+test('ready managed desktop starts bootstrap without a compatibility HTTP request', async () => {
+  let probes = 0;
+  desktopReadiness(async () => { probes += 1; return true; });
+  await render();
+  expect(probes).toBe(1);
+  expect(requests).toHaveLength(0);
+  expect(mounts).toBe(1);
+});
+
+test('unconfirmed desktop readiness keeps the authoritative compatibility check', async () => {
+  desktopReadiness(async () => false);
+  await render();
+  expect(requests).toHaveLength(1);
+  expect(mounts).toBe(0);
+  expect(host.textContent).toContain('OpenCode v2 required');
+});
+
+test('a failed native readiness read falls back to the compatibility endpoint', async () => {
+  desktopReadiness(async () => { throw new Error('Older desktop host'); });
+  await render();
+  expect(requests).toHaveLength(1);
+  expect(mounts).toBe(0);
+});
+
+test('switching to a remote runtime cannot reuse an in-flight local readiness verdict', async () => {
+  let complete: (ready: boolean) => void = () => { throw new Error('Missing IPC'); };
+  desktopReadiness(() => new Promise<boolean>(resolve => { complete = resolve; }));
+  await render();
+  expect(mounts).toBe(0);
+  Object.defineProperty(window, '__OPENCHAMBER_API_BASE_URL__', { value: 'https://remote.example' });
+  await act(async () => window.dispatchEvent(new window.CustomEvent('openchamber:runtime-endpoint-changed')));
+  await act(async () => complete(true));
+  expect(mounts).toBe(0);
+  expect(requests).toHaveLength(1);
+  expect(host.textContent).toContain('OpenCode v2 required');
 });

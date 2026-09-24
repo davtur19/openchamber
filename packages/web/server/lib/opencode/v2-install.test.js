@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +11,7 @@ let homeDirectory;
 let binary;
 const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 const cli = (version) => '#!/bin/sh\nprintf "%s\\n" "opencode v' + version + '"\n';
-const run = (script, version = '2.0.14') => installOpenCodeV2({
+const run = (script, version = '2.0.15') => installOpenCodeV2({
   homeDirectory,
   fetchImpl: async (url) => url.includes('registry.npmjs.org')
     ? Response.json({ version })
@@ -29,13 +31,13 @@ describe('OpenCode v2 installation', () => {
     const script = `#!/bin/bash
 set -eu
 test "$1" = "--version"
-test "$2" = "2.0.14"
+test "$2" = "2.0.15"
 test "$3" = "--no-modify-path"
-printf %s ${quote(cli('2.0.14'))} > ${quote(binary)}
+printf %s ${quote(cli('2.0.15'))} > ${quote(binary)}
 chmod 755 ${quote(binary)}
 `;
     expect(await run(script)).toBe(binary);
-    expect(await readOpenCodeCliVersion({ binary, args: [] })).toBe('2.0.14');
+    expect(await readOpenCodeCliVersion({ binary, args: [] })).toBe('2.0.15');
     await expect(fs.stat(path.join(path.dirname(binary), '.openchamber-install'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
@@ -58,6 +60,58 @@ chmod 755 ${quote(binary)}
   it('rejects a non-v2 registry release before running the installer', async () => {
     await expect(run(`rm ${quote(binary)}`, '3.0.0')).rejects.toThrow();
     expect(await readOpenCodeCliVersion({ binary, args: [] })).toBe('1.18.30');
+  });
+
+  describe('on Windows', () => {
+    const TARBALL = 'https://registry.npmjs.org/@opencode/cli-windows-x64-baseline/-/cli-windows-x64-baseline-2.0.15.tgz';
+    let exe;
+    const integrityOf = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+    // The platform package keeps its binary at package/bin/opencode.exe. Here it is a
+    // shell script, so the version check runs it on the Linux/macOS test host.
+    const pack = async (version) => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'oc-package-'));
+      await fs.mkdir(path.join(root, 'package/bin'), { recursive: true });
+      await fs.writeFile(path.join(root, 'package/bin/opencode.exe'), cli(version), { mode: 0o755 });
+      execFileSync('tar', ['-czf', path.join(root, 'package.tgz'), '-C', root, 'package']);
+      const bytes = await fs.readFile(path.join(root, 'package.tgz'));
+      await fs.rm(root, { recursive: true, force: true });
+      return bytes;
+    };
+    const runWindows = (archive, integrity = integrityOf(archive)) => installOpenCodeV2({
+      homeDirectory,
+      platform: 'win32',
+      tarCommand: 'tar',
+      fetchImpl: async (url) => {
+        if (url.endsWith('/@opencode%2Fcli/latest')) return Response.json({ version: '2.0.15' });
+        if (url.endsWith('/@opencode%2Fcli-windows-x64-baseline/2.0.15')) return Response.json({ dist: { tarball: TARBALL, integrity } });
+        if (url === TARBALL) return new Response(archive);
+        return new Response(null, { status: 404 });
+      },
+    });
+
+    beforeEach(async () => {
+      exe = path.join(homeDirectory, '.opencode/bin/opencode.exe');
+      await fs.writeFile(exe, cli('1.18.30'), { mode: 0o755 });
+    });
+
+    it('installs the verified platform package without the bash installer', async () => {
+      expect(await runWindows(await pack('2.0.15'))).toBe(exe);
+      expect(await readOpenCodeCliVersion({ binary: exe, args: [] })).toBe('2.0.15');
+      expect(await readOpenCodeCliVersion({ binary, args: [] })).toBe('1.18.30');
+      await expect(fs.stat(path.join(path.dirname(exe), '.openchamber-install'))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('rejects a package that does not match its published integrity before touching the binary', async () => {
+      const archive = await pack('2.0.15');
+      await expect(runWindows(archive, integrityOf(Buffer.from('other')))).rejects.toThrow('integrity');
+      expect(await readOpenCodeCliVersion({ binary: exe, args: [] })).toBe('1.18.30');
+      await expect(fs.stat(path.join(path.dirname(exe), '.openchamber-install'))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('restores the previous binary when the package holds another release', async () => {
+      await expect(runWindows(await pack('2.0.14'))).rejects.toThrow();
+      expect(await readOpenCodeCliVersion({ binary: exe, args: [] })).toBe('1.18.30');
+    });
   });
 
   it('does not overwrite an installation owned by another process', async () => {

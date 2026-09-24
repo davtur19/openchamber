@@ -851,6 +851,7 @@ interface UIStore {
   isSessionCreateDialogOpen: boolean;
   isScheduledTasksDialogOpen: boolean;
   isArchivePageOpen: boolean;
+  isUsageStatsPageOpen: boolean;
   openGuestPageId: string | null;
   worktreesPageProjectId: string | null;
   isSettingsDialogOpen: boolean;
@@ -1080,9 +1081,10 @@ interface UIStore {
   setSessionCreateDialogOpen: (open: boolean) => void;
   setScheduledTasksDialogOpen: (open: boolean) => void;
   setArchivePageOpen: (open: boolean) => void;
+  setUsageStatsPageOpen: (open: boolean) => void;
   setOpenGuestPage: (id: string | null) => void;
   setWorktreesPageProjectId: (projectId: string | null) => void;
-  /** Close every full-page surface (Scheduled, Archive, Worktrees, Multi-run). */
+  /** Close every full-page surface (Scheduled, Archive, Usage, Worktrees, Multi-run). */
   closeMainSurfaces: () => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setNewWorktreeDialogOpen: (open: boolean) => void;
@@ -1272,6 +1274,7 @@ export const useUIStore = create<UIStore>()(
         isSessionCreateDialogOpen: false,
         isScheduledTasksDialogOpen: false,
         isArchivePageOpen: false,
+        isUsageStatsPageOpen: false,
         openGuestPageId: null,
         worktreesPageProjectId: null,
         isSettingsDialogOpen: false,
@@ -2014,35 +2017,42 @@ export const useUIStore = create<UIStore>()(
 
         setScheduledTasksDialogOpen: (open) => {
           set(open
-            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false, openGuestPageId: null }
+            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false, openGuestPageId: null }
             : { isScheduledTasksDialogOpen: false });
         },
 
         setArchivePageOpen: (open) => {
           set(open
-            ? { isArchivePageOpen: true, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false, openGuestPageId: null }
+            ? { isArchivePageOpen: true, isUsageStatsPageOpen: false, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false, openGuestPageId: null }
             : { isArchivePageOpen: false });
+        },
+
+        setUsageStatsPageOpen: (open) => {
+          set(open
+            ? { isUsageStatsPageOpen: true, isArchivePageOpen: false, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false, openGuestPageId: null }
+            : { isUsageStatsPageOpen: false });
         },
 
         setWorktreesPageProjectId: (projectId) => {
           set(projectId
-            ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isMultiRunLauncherOpen: false, openGuestPageId: null }
+            ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, isMultiRunLauncherOpen: false, openGuestPageId: null }
             : { worktreesPageProjectId: null });
         },
 
         setOpenGuestPage: (id) => {
-          set(id ? { openGuestPageId: id, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
+          set(id ? { openGuestPageId: id, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
             : { openGuestPageId: null });
         },
 
         closeMainSurfaces: () => {
           const state = get();
-          if (!state.isScheduledTasksDialogOpen && !state.isArchivePageOpen && !state.worktreesPageProjectId && !state.isMultiRunLauncherOpen && !state.openGuestPageId) {
+          if (!state.isScheduledTasksDialogOpen && !state.isArchivePageOpen && !state.isUsageStatsPageOpen && !state.worktreesPageProjectId && !state.isMultiRunLauncherOpen && !state.openGuestPageId) {
             return;
           }
           set({
             isScheduledTasksDialogOpen: false,
             isArchivePageOpen: false,
+            isUsageStatsPageOpen: false,
             worktreesPageProjectId: null,
             isMultiRunLauncherOpen: false,
             multiRunLauncherPrefillPrompt: '',
@@ -2599,7 +2609,7 @@ export const useUIStore = create<UIStore>()(
           set((state) => ({
             isMultiRunLauncherOpen: open,
             multiRunLauncherPrefillPrompt: open ? state.multiRunLauncherPrefillPrompt : '',
-            ...(open ? { isScheduledTasksDialogOpen: false, isArchivePageOpen: false, worktreesPageProjectId: null, openGuestPageId: null } : {}),
+            ...(open ? { isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, openGuestPageId: null } : {}),
           }));
         },
 
@@ -2611,6 +2621,7 @@ export const useUIStore = create<UIStore>()(
             isSessionSwitcherOpen: false,
             isScheduledTasksDialogOpen: false,
             isArchivePageOpen: false,
+            isUsageStatsPageOpen: false,
             worktreesPageProjectId: null,
           });
         },
@@ -2623,6 +2634,7 @@ export const useUIStore = create<UIStore>()(
             isSessionSwitcherOpen: false,
             isScheduledTasksDialogOpen: false,
             isArchivePageOpen: false,
+            isUsageStatsPageOpen: false,
             worktreesPageProjectId: null,
           });
         },

@@ -42,7 +42,11 @@ So:
 
 The desktop/web/VS Code App entry and MobileApp entry mount
 `OpenCodeCompatibilityGate` before application initialization and SyncProvider.
-The gate reads the OpenChamber-owned `/api/opencode/compatibility` endpoint;
+Electron first asks the native host for the embedded managed CLI preflight.
+It shares the lifecycle's pending or successful version check, so the gate starts
+the app without another version request and without waiting for server health.
+The verdict is scoped to the current API endpoint and is never persisted.
+All other cases use the OpenChamber-owned `/api/opencode/compatibility` endpoint;
 it does not depend on a healthy OpenCode server or successful session bootstrap.
 Native mobile connection selection remains outside the gate until a server is selected.
 
@@ -353,6 +357,8 @@ Turn-complete and error notifications are recorded before the directory-store lo
 Session display order is independent from streaming-frequency `time.updated` publications. `session-ordering.ts` promotes a session exactly when its authoritative activity phase crosses `settled` (`idle`/`error`) and `active` (`busy`/`retry`) in either direction. Repeated busy/retry or idle/error events are no-ops. The first authoritative status snapshot establishes a baseline without synthetic promotions; later snapshots reconcile missed transitions. Root sessions compare lifecycle rank only with other roots, while child sessions compare lifecycle rank only with siblings sharing the same `parentID`, so child activity never moves its root conversation. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering, so later metadata-only updates cannot reorder it; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
 
 `session-activity-timing.ts` measures how long a turn has been running, because `SessionStatus` carries no timestamps. It is driven from the same two write paths as `global-session-status.ts`, so a row can never count a turn that index calls idle. A session gains a start on its first `active` observation and keeps it across repeated busy/retry events; settling converts that start into a finished duration, which rows show only while the session is unread and which is therefore never persisted.
+
+A background subagent keeps its parent's turn open for display. The parent goes idle while the child session works and runs again when OpenCode hands the result back; `global-session-status.ts` therefore holds the parent's timer through that pause (an idle parent with a running descendant does not settle, the last descendant to finish settles it, and snapshots count ancestors of running sessions as active), and `useSessionTurnActive` is what every session row, tab and switcher reads as "running". `statusById` and `activeSessionIds` stay the session's own status: sends, cleanup and retention must not treat an idle parent as busy. The parent lookup comes from the global sessions store through `setSessionParentResolver`, wired by `sync-context.tsx`.
 
 Starts are persisted so a reload resumes the same count, but a persisted start is a lookup table and never a claim of activity. **Nothing in the protocol marks where a turn begins.** OpenCode calls `SessionStatus.set` with `busy` at every step of the agent loop and publishes an event each time, so a busy event means "still running", not "just started"; after a refresh one of those repeats normally beats the first status snapshot, so treating it as a turn boundary reset the counter on nearly every reload. Turn *ends* are marked — `session.idle` and `session.error` fire once, live, and retire the persisted record — while a snapshot that omits a session is not evidence of anything, since it may simply not see it yet.
 

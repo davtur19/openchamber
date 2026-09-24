@@ -3655,9 +3655,8 @@ export function useSessionMessageRecords(
       return EMPTY_SESSION_MESSAGE_RECORDS
     }
     if (options?.enabled === false) {
-      if (snapshotRef.current.sessionID === sessionID) {
-        return snapshotRef.current.list
-      }
+      const cachedList = snapshotRef.current.sessionID === sessionID ? snapshotRef.current.list : null
+      if (cachedList) return cachedList
       // Read-through: an inactive embedded panel (e.g. the context-panel
       // session chat before its visibility handshake completes) still paints
       // history that is already materialized in the store. Without this the

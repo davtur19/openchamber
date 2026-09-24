@@ -1,37 +1,30 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import type { State } from "../types"
+import type { Message, Part } from "@/lib/opencode/model"
+import { INITIAL_STATE, type State } from "../types"
 import { readInactiveSessionMessageRecords } from "../sync-context"
 
 function message(id: string, sessionID = "ses_1"): Message {
-  return { id, sessionID, role: "assistant", time: { created: 1 } } as Message
+  return {
+    id,
+    sessionID,
+    role: "assistant",
+    time: { created: 1 },
+    agent: "build",
+    providerID: "anthropic",
+    modelID: "claude-sonnet-5",
+  }
 }
 
 function part(id: string, messageID: string, text = id): Part {
-  return { id, messageID, sessionID: "ses_1", type: "text", text } as Part
+  return { id, messageID, sessionID: "ses_1", type: "text", text }
 }
 
+// Shallow copy with fresh buckets: tests mutate only these, and sharing
+// INITIAL_STATE's nested objects would leak state across tests.
 const baseState = (): State => ({
-  status: "complete",
-  agent: [],
-  command: [],
-  project: "",
-  projectMeta: undefined,
-  icon: undefined,
-  provider: { all: [], default: {}, connected: [] },
-  config: {},
-  path: { home: "", state: "", config: "", worktree: "", directory: "" },
+  ...INITIAL_STATE,
   session: [],
-  sessionTotal: 0,
   session_status: {},
-  session_diff: {},
-  todo: {},
-  permission: {},
-  question: {},
-  mcp: {},
-  lsp: [],
-  vcs: undefined,
-  limit: 0,
   message: {},
   part: {},
 })
@@ -43,6 +36,8 @@ describe("readInactiveSessionMessageRecords (embedded chat read-through)", () =>
 
   test("returns null when the session has no fetched messages", () => {
     const state = baseState()
+    // SAFETY: the renderability check reads only the message buckets, never
+    // the session record's other required fields.
     state.session = [{ id: "ses_1", time: { created: 1 } } as SessionLike]
     expect(readInactiveSessionMessageRecords(state, "ses_1")).toBeNull()
   })

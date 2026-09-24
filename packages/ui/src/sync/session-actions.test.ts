@@ -1676,7 +1676,6 @@ describe("respondToPermission passes directory", () => {
 describe("abortSession funnel and abort sources", () => {
   beforeEach(() => {
     replyCalls.length = 0
-    scopedClientDirectories.length = 0
   })
 
   test("routes abort through the session directory instead of the current directory", async () => {
@@ -1689,7 +1688,7 @@ describe("abortSession funnel and abort sources", () => {
     ])
 
     const { setActionRefs, abortSession } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/current/project")
+    setActionRefs(childStores, () => "/current/project")
 
     await abortSession("session-a", "stop-button")
 
@@ -1703,7 +1702,7 @@ describe("abortSession funnel and abort sources", () => {
     const childStores = createChildStores([["/test/project", sessionStore]])
 
     const { setActionRefs, abortCurrentOperation } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/current/project")
+    setActionRefs(childStores, () => "/current/project")
 
     await abortCurrentOperation("session-a", "escape")
 
@@ -1722,10 +1721,9 @@ describe("abortSession funnel and abort sources", () => {
       part: { "msg_2": [targetPart] },
     })
     const childStores = createChildStores([["/test/project", sessionStore]])
-    sessionRevertResult = { data: { id: "session-a", time: { created: 1, updated: 2 }, revert: { messageID: "msg_2" } } }
 
     const { setActionRefs, revertToMessage } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     await revertToMessage("session-a", "msg_2")
 
@@ -1744,15 +1742,14 @@ describe("abortSession funnel and abort sources", () => {
       part: { "msg_2": [targetPart] },
     })
     const childStores = createChildStores([["/test/project", sessionStore]])
-    sessionRevertResult = { data: { id: "session-a", time: { created: 1, updated: 2 }, revert: { messageID: "msg_2" } } }
 
     const { setActionRefs, revertToMessage } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     await revertToMessage("session-a", "msg_2")
 
     expect(replyCalls.some((call) => call.method === "session.abort")).toBe(false)
-    expect(replyCalls.some((call) => call.method === "session.revert")).toBe(true)
+    expect(replyCalls.some((call) => call.method === "session.revert.stage")).toBe(true)
   })
 
   test("pause-goal does not abort an already idle session", async () => {
@@ -1761,7 +1758,7 @@ describe("abortSession funnel and abort sources", () => {
     const childStores = createChildStores([["/test/project", sessionStore]])
 
     const { setActionRefs, abortSession } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     await abortSession("session-a", "pause-goal")
 
@@ -1774,7 +1771,7 @@ describe("abortSession funnel and abort sources", () => {
     const childStores = createChildStores([["/test/project", sessionStore]])
 
     const { setActionRefs, abortSession } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     await abortSession("session-a", "pause-goal")
 
@@ -1798,7 +1795,6 @@ describe("abort trace ring buffer", () => {
   beforeEach(() => {
     storage = new Map()
     replyCalls.length = 0
-    scopedClientDirectories.length = 0
     Object.defineProperty(globalThis, "window", { value: fakeWindow(), configurable: true })
   })
 
@@ -1812,7 +1808,7 @@ describe("abort trace ring buffer", () => {
     const childStores = createChildStores([["/test/project", sessionStore]])
 
     const { setActionRefs, abortSession, getAbortTrace } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     await abortSession("session-a", "escape")
 
@@ -1830,7 +1826,7 @@ describe("abort trace ring buffer", () => {
     const childStores = createChildStores([["/test/project", sessionStore]])
 
     const { setActionRefs, abortSession, getAbortTrace } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     for (let i = 0; i < 105; i += 1) {
       await abortSession("session-a", "stop-button")
@@ -1848,7 +1844,7 @@ describe("abort trace ring buffer", () => {
     const childStores = createChildStores([["/test/project", sessionStore]])
 
     const { setActionRefs, abortSession, getAbortTrace, clearAbortTrace } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     await abortSession("session-a", "revert")
     expect(getAbortTrace().length).toBe(1)
@@ -1864,7 +1860,7 @@ describe("abort trace ring buffer", () => {
     const childStores = createChildStores([["/test/project", sessionStore]])
 
     const { setActionRefs, abortSession } = await import("./session-actions")
-    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+    setActionRefs(childStores, () => "/test/project")
 
     await abortSession("session-a", "stop-button")
 

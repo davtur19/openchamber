@@ -27,8 +27,6 @@ interface SettingsSearchAvailabilityContext extends SettingsRuntimeContext {
   isWindows: boolean;
   // Linux desktop shell — for controls that only render on linux.
   isLinux: boolean;
-  // Windows ARM64 — temporary workaround gate (see opencode#19130).
-  isWindowsArm64: boolean;
 }
 
 const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
@@ -306,7 +304,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.promptNavigatorEnabled',
     keywords: ['prompt', 'navigator', 'navigation', 'timeline', 'scroll'],
-    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'chat.collapsible-user-messages',
@@ -573,11 +570,18 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'sessions.opencode-restart',
+    page: 'general',
+    titleKey: 'settings.openchamber.opencodeCli.actions.restart',
+    keywords: ['opencode', 'restart', 'reload', 'plugin'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'sessions.opencode-update-notifications',
     page: 'general',
     titleKey: 'settings.openchamber.opencodeCli.field.showUpdateNotifications',
     keywords: ['opencode', 'cli', 'updates'],
-    isAvailable: (ctx) => !ctx.isVSCode && !ctx.isWindowsArm64,
+    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'sessions.agent-control-tool',
@@ -601,6 +605,23 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.openchamber.tools.browserProvider.label',
     descriptionKey: 'settings.openchamber.tools.browserProvider.info',
     keywords: ['agent', 'browser', 'provider', 'extension', 'chrome', 'server', 'headless'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'sessions.agent-notify-tool',
+    page: 'general',
+    titleKey: 'settings.openchamber.tools.field.agentNotifyTool',
+    descriptionKey: 'settings.openchamber.tools.field.agentNotifyToolInfo',
+    keywords: ['agent', 'tool', 'notify', 'notification', 'alert', 'ping', 'openchamber'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'general.isolated-spaces',
+    page: 'general',
+    titleKey: 'settings.openchamber.spaces.field.enabled',
+    descriptionKey: 'settings.openchamber.spaces.field.enabledInfo',
+    keywords: ['isolated', 'space', 'spaces', 'container', 'docker', 'sandbox', 'agent'],
+    // Never in VS Code: the feature has no entry point there (decision 16 of the design).
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {

@@ -108,6 +108,10 @@ never stacks glass on glass: a CSS rule in `design-system.css` hides the
 composer's own contents while it is up, leaving the box as the single glass
 surface on desktop and the overlay itself on mobile.
 
+The context-chip preview stays above its chip. Its scrollable content is capped
+by the space between the chip and the chat column's top edge, so a long preview
+does not hide its entry actions behind the chat header.
+
 ## Layers
 
 | Directory | Owns |
@@ -462,6 +466,27 @@ morph announces `oc:composer-morph` (`hold` with the slot's height delta,
 automatic end write while a transition runs, lets the geometry land in one
 step, and drives scrollTop on the same curve. Mobile browsers, Android and
 reduced motion keep the instant swap.
+
+## Chat quote highlights
+
+A `chat-quote` draft carries an anchor (`lib/chatQuoteAnchor.ts`): the quoted
+text in its message's rendered text stream plus the characters around it. It
+is captured at selection time, persisted with the draft and sent in the
+context part's metadata. `message/ChatQuoteHighlightLayer.tsx` (one per
+`ChatContainer`, fed by the column's `hooks/chatQuoteHighlightStore.ts`) uses it
+to paint with the CSS Custom Highlight API. The store lives outside React state
+and the layer holds all hover and popover state, so none of it re-renders the
+chat column. The
+markdown DOM is never modified. While quotes wait as context chips they stay
+marked in their messages; the one hovered in the chip preview is drawn
+stronger. Resting the mouse on a mark, or tapping it on touch, opens
+`message/ChatQuoteMarkPopover.tsx` with the comment, edit (the selection
+menu's input) and remove; the publisher's callbacks write the draft. Clicking
+a quote in the preview, or the arrow on a sent quote card, scrolls to it
+through the timeline controller and flashes it. Ranges are
+re-resolved by text and context whenever the marked message re-renders or
+remounts. Offsets only break ties. Quotes sent before anchors existed are
+found only when their text appears once in the message.
 
 ## Mobile comment mode
 

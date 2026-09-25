@@ -112,6 +112,7 @@ import { createAgentMemoryRuntime } from './lib/agent-memory/runtime.js';
 import { createAgentMemoryActions } from './lib/agent-memory/actions.js';
 import { createMemoryProjectResolver } from './lib/agent-memory/project-resolution.js';
 import { isAgentMemoryFeatureAvailable } from './lib/agent-memory/feature-flag.js';
+import { createSpacesHost } from './lib/spaces/host.js';
 import { resolvePrimaryWorktreeRoot } from './lib/git/service.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
@@ -129,6 +130,7 @@ import { createOpenChamberSessionService } from './lib/openchamber-sessions/rout
 import { createSessionMetadataStore, createOpenCodeSessionMetadata } from './lib/openchamber-sessions/session-metadata-store.js';
 import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
 import { createOpenChamberControlService } from './lib/openchamber-control/service.js';
+import { createPluginNotificationEmitter } from './lib/notifications/emit-route.js';
 import { OpenChamberControlError } from './lib/openchamber-control/error.js';
 import { createFileOpenRequester } from './lib/openchamber-control/file-open.js';
 import { applyConnectAttemptTimeout } from './lib/network-defaults.js';
@@ -386,6 +388,8 @@ const projectDirectoryRuntime = createProjectDirectoryRuntime({
   normalizeDirectoryPath,
   getReadSettingsFromDiskMigrated: () => readSettingsFromDiskMigrated,
   sanitizeProjects,
+  // A space's directory never runs on the host, whatever route carries it.
+  refuseDirectory: (candidate) => spacesHost?.refuseDirectory(candidate) ?? null,
 });
 
 const resolveDirectoryCandidate = (...args) => projectDirectoryRuntime.resolveDirectoryCandidate(...args);
@@ -629,6 +633,9 @@ let openCodeNotReadySince = 0;
 let isExternalOpenCode = false;
 let exitOnShutdown = true;
 let uiAuthController = null;
+// The isolated-spaces host: the place, the manager and the dispatcher. Null while the feature's
+// switch is off, and then nothing of the feature runs, see docs/isolated-spaces/DESIGN.md.
+let spacesHost = null;
 let activeTunnelController = null;
 let globalWatcherStartPromise = null;
 const tunnelProviderRegistry = createTunnelProviderRegistry([
@@ -1116,6 +1123,10 @@ const serverUtilsRuntime = createServerUtilsRuntime({
   // down, while the proxy is registered later still.
   getArchivedSessions: () => openChamberSessionService.archiveStore.getAll(),
   getStoredSessionMetadata: () => sessionMetadataStore.listUnmigrated(),
+  // Isolated spaces: with the switch on, the session list carries every space's sessions and
+  // the global SSE stream their events. Called, not captured: the host is made in `main`.
+  getMergeSpaceSessionList: () => (spacesHost ? (payload) => spacesHost.mergeSessionList(payload) : null),
+  getSpaceEventHub: () => (spacesHost ? globalMessageStreamHub : null),
   fs,
   os,
   path,
@@ -1575,6 +1586,12 @@ const fileOpenRequester = createFileOpenRequester({
   },
 });
 
+const pluginNotificationEmitter = createPluginNotificationEmitter({
+  readSettingsFromDiskMigrated,
+  emitDesktopNotification,
+  broadcastUiNotification,
+});
+
 const openChamberControlService = createOpenChamberControlService({
   readSettingsFromDiskMigrated,
   sanitizeProjects,
@@ -1585,6 +1602,15 @@ const openChamberControlService = createOpenChamberControlService({
   scheduledTaskService,
   browserControl: browserControlRouter,
   fileOpen: fileOpenRequester,
+  // The tool is off by default; a plugin generated before it was switched off
+  // must not keep paging the user.
+  notifyUser: async (input) => {
+    const settings = await readSettingsFromDiskMigrated().catch(() => null);
+    if (settings?.agentNotifyToolEnabled !== true) {
+      return { status: 403, body: { error: 'The notify tool is turned off in OpenChamber settings' } };
+    }
+    return pluginNotificationEmitter.emit(input);
+  },
   agentMemoryActions: createAgentMemoryActions({
     agentMemoryRuntime,
     createError: (message, status) => new OpenChamberControlError(message, status),
@@ -1682,6 +1708,7 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
   getDictationRuntime: () => dictationRuntime,
   getRelayService: () => relayServiceInstance,
   getRelayReconcileTimer: () => relayReconcileTimer,
+  getSpacesHost: () => spacesHost,
 });
 
 const gracefulShutdown = (...args) => gracefulShutdownRuntime.gracefulShutdown(...args);
@@ -1858,6 +1885,27 @@ async function main(options = {}) {
   // but do not hold server listen or managed OpenCode startup on `say -v "?"`.
   const sayTTSCapability = detectSayTtsCapability(process);
 
+  // The isolated-spaces switch is read once, here. While it is off the feature has no place, no
+  // manager, no route and runs no `docker`; a change of the switch takes effect at the next start.
+  const startupSettings = await readSettingsFromDiskMigrated().catch(() => null);
+  if (startupSettings?.isolatedSpacesEnabled === true) {
+    try {
+      spacesHost = createSpacesHost({
+        dataDir: OPENCHAMBER_DATA_DIR,
+        dockerPath: searchPathFor('docker', buildAugmentedPath()) ?? 'docker',
+        // So the session list can say which registered project each space was made for.
+        listProjectDirectories: async () => {
+          const settings = await readSettingsFromDiskMigrated();
+          return sanitizeProjects(settings?.projects || []).map((project) => project.path);
+        },
+      });
+    } catch (error) {
+      // The feature is absent then, and the rest of the server starts as with the switch off.
+      console.error(`[spaces] isolated spaces are unavailable this start: ${error?.code ?? ''} ${error?.message ?? error}`.trim());
+      spacesHost = null;
+    }
+  }
+
   const app = express();
   const serverStartedAt = new Date().toISOString();
   const packagedClientOrigins = new Set([
@@ -2009,6 +2057,7 @@ async function main(options = {}) {
     isUiVisible,
     getUiNotificationClients: () => uiNotificationClients,
     writeSseEvent,
+    pluginNotificationEmitter,
     sessionRuntime,
     setPushInitialized,
     fs,
@@ -2024,8 +2073,18 @@ async function main(options = {}) {
     setAutoAcceptSession,
     agentToolRuntime,
     desktopUpdater,
+    skipBodyParsing: (req) => spacesHost?.skipsBodyParsing(req) === true,
   });
   uiAuthController = bootstrapResult.uiAuthController;
+  // After the API auth gate, before every route that reads a directory, before the OpenCode proxy.
+  spacesHost?.registerRoutes(app);
+  spacesHost?.attachUpgrades(server, { uiAuthController, isRequestOriginAllowed });
+  // Every space's events join the host's hub, and the host asks each space for its live status.
+  if (spacesHost) {
+    void spacesHost.startEvents(globalMessageStreamHub).catch((error) => {
+      console.warn(`[spaces] could not follow the spaces: ${error?.message ?? error}`);
+    });
+  }
   realtimeProxyRuntime = attachRealtimeProxy({
     app,
     server,
@@ -2119,6 +2178,7 @@ async function main(options = {}) {
       guestSurfaceRuntime?.endForGuest(event.guestId);
       return browserControlRouter.handleGuestDeactivated(event);
     },
+    surfaceViewerHeaders: (guestId, viewerId) => guestSurfaceRuntime?.viewerHeaders(guestId, viewerId) ?? null,
     builtInExtensionsDir: options.builtInExtensionsDir,
     openchamberUserConfigRoot: OPENCHAMBER_USER_CONFIG_ROOT,
     managedChatsRoot: OPENCHAMBER_CHATS_DIR,

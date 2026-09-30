@@ -14,6 +14,7 @@ import type { PermissionMode } from './utils/permissionAutoAccept';
 import { directoryMayHaveActiveProjectAction, useTerminalStore } from '@/stores/useTerminalStore';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import { isVSCodeRuntime } from '@/lib/desktop';
+import { noteBrowserTabOpenedWithAddress, requestBrowserTabLoad } from '@/lib/browser/devServerWait';
 import { isContextPanelMode, type ContextPanelMode } from '@/lib/surfaces/modes';
 import { getRuntimeKey, isTransientRuntimeKey } from '@/lib/runtime-switch';
 import { sanitizeWorkStatusSectionOrder, type WorkStatusPanelSectionId } from '@/components/chat/work-status/sections';
@@ -41,6 +42,7 @@ export type DesktopWindowControlsPosition = 'left' | 'right';
 export type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
 export type FileEditorKeymap = 'default' | 'vim';
 export type LargeTextPasteBehavior = 'ask' | 'attach' | 'inline';
+export type SessionGoalChecker = 'classifier' | 'small-model';
 
 export const DEFAULT_LARGE_TEXT_PASTE_BEHAVIOR: LargeTextPasteBehavior = 'ask';
 
@@ -538,6 +540,26 @@ const touchContextPanelState = (prev?: ContextPanelDirectoryState): ContextPanel
   };
 };
 
+/**
+ * Someone asked for this address now, so its load may wait for a dev server
+ * that is still starting. A new tab is marked before it mounts; a tab that
+ * already exists is asked to load the address again, since focusing it alone
+ * would leave an earlier failure on screen.
+ */
+const noteBrowserTabAddressRequested = (
+  byDirectory: Record<string, ContextPanelDirectoryState>,
+  directory: string,
+  dedupeKey: string,
+  url: string,
+): void => {
+  const tabID = buildContextPanelTabID('browser', dedupeKey);
+  if (byDirectory[directory]?.tabs.some((tab) => tab.id === tabID)) {
+    requestBrowserTabLoad(directory, tabID, url);
+    return;
+  }
+  noteBrowserTabOpenedWithAddress(directory, tabID);
+};
+
 const upsertContextPanelTab = (
   current: ContextPanelDirectoryState,
   descriptor: ContextPanelTabDescriptor,
@@ -856,6 +878,8 @@ interface UIStore {
   isUsageStatsPageOpen: boolean;
   openGuestPageId: string | null;
   worktreesPageProjectId: string | null;
+  /** The project whose isolated spaces fill the main area, opened from its menu in the sidebar. */
+  spacesPageProjectId: string | null;
   isSettingsDialogOpen: boolean;
   isNewWorktreeDialogOpen: boolean;
   isModelSelectorOpen: boolean;
@@ -899,6 +923,8 @@ interface UIStore {
   /** Let Jev move a session into work when real work starts in it. */
   sessionWorkAutoOpen: boolean;
   sessionGoalEnabled: boolean;
+  /** Who checks goal progress; the small model checks when no classification provider can. */
+  sessionGoalChecker: SessionGoalChecker;
   sessionGoalDefaultBudgetEnabled: boolean;
   sessionGoalDefaultBudget: number;
   /** Max characters accepted for a goal objective (inline or file-backed). */
@@ -1005,6 +1031,8 @@ interface UIStore {
   browserProvider: string;
   agentMemoryToolEnabled: boolean;
   agentNotifyToolEnabled: boolean;
+  /** Whether OpenChamber's agent tools sit behind OpenCode's Code Mode instead of being direct tools. */
+  agentToolsCodeMode: boolean;
   /** The isolated-spaces switch as saved; the server applies it at its next start. */
   isolatedSpacesEnabled: boolean;
   /** The permission mode the server writes onto each new top-level session. */
@@ -1115,7 +1143,8 @@ interface UIStore {
   setUsageStatsPageOpen: (open: boolean) => void;
   setOpenGuestPage: (id: string | null) => void;
   setWorktreesPageProjectId: (projectId: string | null) => void;
-  /** Close every full-page surface (Scheduled, Archive, Usage, Worktrees, Multi-run). */
+  setSpacesPageProjectId: (projectId: string | null) => void;
+  /** Close every full-page surface (Scheduled, Archive, Usage, Worktrees, Spaces, Multi-run). */
   closeMainSurfaces: () => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setNewWorktreeDialogOpen: (open: boolean) => void;
@@ -1139,6 +1168,7 @@ interface UIStore {
   setSessionWorkEnabled: (value: boolean) => void;
   setSessionWorkAutoOpen: (value: boolean) => void;
   setSessionGoalEnabled: (value: boolean) => void;
+  setSessionGoalChecker: (value: SessionGoalChecker) => void;
   setSessionGoalDefaultBudgetEnabled: (value: boolean) => void;
   setSessionGoalDefaultBudget: (value: number) => void;
   setSessionGoalObjectiveCharLimit: (value: number) => void;
@@ -1232,6 +1262,7 @@ interface UIStore {
   setBrowserProvider: (value: string) => void;
   setAgentMemoryToolEnabled: (value: boolean) => void;
   setAgentNotifyToolEnabled: (value: boolean) => void;
+  setAgentToolsCodeMode: (value: boolean) => void;
   setIsolatedSpacesEnabled: (value: boolean) => void;
   setPermissionDefaultMode: (value: PermissionMode) => void;
   setAgentMemoryFeatureAvailable: (value: boolean) => void;
@@ -1320,6 +1351,7 @@ export const useUIStore = create<UIStore>()(
         isUsageStatsPageOpen: false,
         openGuestPageId: null,
         worktreesPageProjectId: null,
+        spacesPageProjectId: null,
         isSettingsDialogOpen: false,
         isNewWorktreeDialogOpen: false,
         isModelSelectorOpen: false,
@@ -1342,6 +1374,7 @@ export const useUIStore = create<UIStore>()(
         sessionWorkEnabled: true,
         sessionWorkAutoOpen: true,
         sessionGoalEnabled: true,
+        sessionGoalChecker: 'small-model',
         sessionGoalDefaultBudgetEnabled: false,
         sessionGoalDefaultBudget: 200_000,
         sessionGoalObjectiveCharLimit: 5_000,
@@ -1425,6 +1458,7 @@ export const useUIStore = create<UIStore>()(
         browserProvider: 'builtin',
         agentMemoryToolEnabled: false,
         agentNotifyToolEnabled: false,
+        agentToolsCodeMode: false,
         isolatedSpacesEnabled: false,
         permissionDefaultMode: 'ask',
         agentMemoryFeatureAvailable: false,
@@ -1659,6 +1693,7 @@ export const useUIStore = create<UIStore>()(
             return;
           }
 
+          noteBrowserTabAddressRequested(get().contextPanelByDirectory, normalizedDirectory, normalizedUrl, normalizedUrl);
           // No stored label: a browser tab is named after wherever it has
           // navigated to, which the panel derives from targetPath.
           get().openContextPanelTab(normalizedDirectory, {
@@ -1676,6 +1711,7 @@ export const useUIStore = create<UIStore>()(
           if (!normalizedDirectory || isVSCodeRuntime()) return null;
           browserTabSequence += 1;
           const dedupeKey = `browser:agent:${Date.now()}-${browserTabSequence}`;
+          if (url.trim()) noteBrowserTabAddressRequested(get().contextPanelByDirectory, normalizedDirectory, dedupeKey, url.trim());
           get().openContextPanelTab(normalizedDirectory, {
             mode: 'browser',
             targetPath: url.trim(),
@@ -1701,6 +1737,7 @@ export const useUIStore = create<UIStore>()(
           const normalizedDirectory = normalizeDirectoryPath((directory || '').trim());
           if (!normalizedDirectory || isVSCodeRuntime()) return;
           const targetUrl = typeof url === 'string' && url.trim().length > 0 ? url.trim() : '';
+          if (targetUrl) noteBrowserTabAddressRequested(get().contextPanelByDirectory, normalizedDirectory, targetUrl, targetUrl);
           get().openContextPanelTab(normalizedDirectory, {
             mode: 'browser',
             targetPath: targetUrl,
@@ -2087,36 +2124,42 @@ export const useUIStore = create<UIStore>()(
 
         setScheduledTasksDialogOpen: (open) => {
           set(open
-            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, runOverviewKey: null, openGuestPageId: null }
+            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, spacesPageProjectId: null, runOverviewKey: null, openGuestPageId: null }
             : { isScheduledTasksDialogOpen: false });
         },
 
         setArchivePageOpen: (open) => {
           set(open
-            ? { isArchivePageOpen: true, isUsageStatsPageOpen: false, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, runOverviewKey: null, openGuestPageId: null }
+            ? { isArchivePageOpen: true, isUsageStatsPageOpen: false, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, spacesPageProjectId: null, runOverviewKey: null, openGuestPageId: null }
             : { isArchivePageOpen: false });
         },
 
         setUsageStatsPageOpen: (open) => {
           set(open
-            ? { isUsageStatsPageOpen: true, isArchivePageOpen: false, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, runOverviewKey: null, openGuestPageId: null }
+            ? { isUsageStatsPageOpen: true, isArchivePageOpen: false, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, spacesPageProjectId: null, runOverviewKey: null, openGuestPageId: null }
             : { isUsageStatsPageOpen: false });
         },
 
         setWorktreesPageProjectId: (projectId) => {
           set(projectId
-            ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, runOverviewKey: null, openGuestPageId: null }
+            ? { worktreesPageProjectId: projectId, spacesPageProjectId: null, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, runOverviewKey: null, openGuestPageId: null }
             : { worktreesPageProjectId: null });
         },
 
+        setSpacesPageProjectId: (projectId) => {
+          set(projectId
+            ? { spacesPageProjectId: projectId, worktreesPageProjectId: null, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, runOverviewKey: null, openGuestPageId: null }
+            : { spacesPageProjectId: null });
+        },
+
         setOpenGuestPage: (id) => {
-          set(id ? { openGuestPageId: id, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, runOverviewKey: null }
+          set(id ? { openGuestPageId: id, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, spacesPageProjectId: null, runOverviewKey: null }
             : { openGuestPageId: null });
         },
 
         closeMainSurfaces: () => {
           const state = get();
-          if (!state.isScheduledTasksDialogOpen && !state.isArchivePageOpen && !state.isUsageStatsPageOpen && !state.worktreesPageProjectId && !state.runOverviewKey && !state.openGuestPageId) {
+          if (!state.isScheduledTasksDialogOpen && !state.isArchivePageOpen && !state.isUsageStatsPageOpen && !state.worktreesPageProjectId && !state.spacesPageProjectId && !state.runOverviewKey && !state.openGuestPageId) {
             return;
           }
           set({
@@ -2124,6 +2167,7 @@ export const useUIStore = create<UIStore>()(
             isArchivePageOpen: false,
             isUsageStatsPageOpen: false,
             worktreesPageProjectId: null,
+            spacesPageProjectId: null,
             runOverviewKey: null,
             openGuestPageId: null,
           });
@@ -2219,6 +2263,10 @@ export const useUIStore = create<UIStore>()(
 
         setSessionGoalEnabled: (value) => {
           set({ sessionGoalEnabled: value });
+        },
+
+        setSessionGoalChecker: (value) => {
+          set({ sessionGoalChecker: value });
         },
 
         setSessionGoalDefaultBudgetEnabled: (value) => {
@@ -2708,7 +2756,7 @@ export const useUIStore = create<UIStore>()(
         // opening it closes the other surfaces and vice versa.
         setRunOverviewKey: (runKey) => {
           set(runKey
-            ? { runOverviewKey: runKey, isSessionSwitcherOpen: false, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, openGuestPageId: null }
+            ? { runOverviewKey: runKey, isSessionSwitcherOpen: false, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isUsageStatsPageOpen: false, worktreesPageProjectId: null, spacesPageProjectId: null, openGuestPageId: null }
             : { runOverviewKey: null });
         },
 
@@ -2807,6 +2855,9 @@ export const useUIStore = create<UIStore>()(
         },
         setAgentNotifyToolEnabled: (value) => {
           set({ agentNotifyToolEnabled: value });
+        },
+        setAgentToolsCodeMode: (value) => {
+          set({ agentToolsCodeMode: value });
         },
         setAgentMemoryFeatureAvailable: (value) => {
           set({ agentMemoryFeatureAvailable: value });
@@ -3220,6 +3271,7 @@ export const useUIStore = create<UIStore>()(
           sessionWorkEnabled: state.sessionWorkEnabled,
           sessionWorkAutoOpen: state.sessionWorkAutoOpen,
           sessionGoalEnabled: state.sessionGoalEnabled,
+          sessionGoalChecker: state.sessionGoalChecker,
           sessionGoalDefaultBudgetEnabled: state.sessionGoalDefaultBudgetEnabled,
           sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
           sessionGoalObjectiveCharLimit: state.sessionGoalObjectiveCharLimit,
@@ -3285,6 +3337,7 @@ export const useUIStore = create<UIStore>()(
           browserProvider: state.browserProvider,
           agentMemoryToolEnabled: state.agentMemoryToolEnabled,
           agentNotifyToolEnabled: state.agentNotifyToolEnabled,
+          agentToolsCodeMode: state.agentToolsCodeMode,
           isolatedSpacesEnabled: state.isolatedSpacesEnabled,
           permissionDefaultMode: state.permissionDefaultMode,
           agentMemoryViewedAt: state.agentMemoryViewedAt,

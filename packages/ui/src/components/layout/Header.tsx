@@ -51,6 +51,7 @@ import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitc
 import { OpenInAppButton } from '@/components/desktop/OpenInAppButton';
 import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
 import { SpaceAccessButton } from '@/components/session/spaces/SpaceAccessButton';
+import { SpaceApplyButton } from '@/components/session/spaces/SpaceApplyButton';
 import { useProjectActionsContext } from '@/hooks/useProjectActionsContext';
 import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
 import { SessionTabsStrip, type SessionTabMenuArgs } from './SessionTabsStrip';
@@ -919,7 +920,7 @@ export const Header: React.FC = () => {
       : 'sessions.sidebar.session.delete.success'));
   }, [archiveSessions, deleteSessions, pendingHeaderRetentionAction, t]);
 
-  // Full-page surfaces (Scheduled, Archive, Worktrees, run overview) replace the
+  // Full-page surfaces (Scheduled, Archive, Worktrees, Spaces, run overview) replace the
   // chat area; while one is open the header shows the surface identity
   // instead of the session switcher.
   const openGuestPageId = useUIStore((state) => state.openGuestPageId);
@@ -928,11 +929,13 @@ export const Header: React.FC = () => {
   const isArchiveSurfaceOpen = useUIStore((state) => state.isArchivePageOpen);
   const isUsageStatsSurfaceOpen = useUIStore((state) => state.isUsageStatsPageOpen);
   const worktreesSurfaceProjectId = useUIStore((state) => state.worktreesPageProjectId);
+  const spacesSurfaceProjectId = useUIStore((state) => (state.isolatedSpacesEnabled ? state.spacesPageProjectId : null));
   const runOverviewKey = useUIStore((state) => state.runOverviewKey);
   const overviewRunTitle = useMultiRunTitle(runOverviewKey);
-  const worktreesSurfaceProjectLabel = useProjectsStore((state) => {
-    if (!worktreesSurfaceProjectId) return null;
-    const project = state.projects.find((entry) => entry.id === worktreesSurfaceProjectId);
+  const surfaceProjectId = worktreesSurfaceProjectId ?? spacesSurfaceProjectId;
+  const surfaceProjectLabel = useProjectsStore((state) => {
+    if (!surfaceProjectId) return null;
+    const project = state.projects.find((entry) => entry.id === surfaceProjectId);
     return project?.label?.trim() || project?.path?.split('/').pop() || null;
   });
   const activeSurfaceHeader = React.useMemo<{ title: string; subtitle: string | null } | null>(() => {
@@ -948,15 +951,18 @@ export const Header: React.FC = () => {
     }
     if (worktreesSurfaceProjectId) {
       return {
-        title: t('sessions.worktreesPage.title', { project: worktreesSurfaceProjectLabel ?? '' }),
+        title: t('sessions.worktreesPage.title', { project: surfaceProjectLabel ?? '' }),
         subtitle: null,
       };
+    }
+    if (spacesSurfaceProjectId) {
+      return { title: t('spaces.page.title', { project: surfaceProjectLabel ?? '' }), subtitle: null };
     }
     if (runOverviewKey) {
       return { title: overviewRunTitle ?? t('multirun.overview.headerTitle'), subtitle: t('multirun.overview.headerTitle') };
     }
     return null;
-  }, [guestPage, isArchiveSurfaceOpen, overviewRunTitle, runOverviewKey, isScheduledSurfaceOpen, isUsageStatsSurfaceOpen, t, worktreesSurfaceProjectId, worktreesSurfaceProjectLabel]);
+  }, [guestPage, isArchiveSurfaceOpen, overviewRunTitle, runOverviewKey, isScheduledSurfaceOpen, isUsageStatsSurfaceOpen, spacesSurfaceProjectId, surfaceProjectLabel, t, worktreesSurfaceProjectId]);
 
 
   const actionDirectory = React.useMemo(() => {
@@ -1251,6 +1257,7 @@ export const Header: React.FC = () => {
           className="mr-2"
         />
       ) : null}
+      <SpaceApplyButton directory={openDirectory} className={cn(DESKTOP_HEADER_ICON_BUTTON_CLASS, 'mr-1 text-muted-foreground hover:text-foreground')} iconClassName="h-[18px] w-[18px]" />
       <SpaceAccessButton directory={openDirectory} className={cn(DESKTOP_HEADER_ICON_BUTTON_CLASS, 'mr-1 text-muted-foreground hover:text-foreground')} iconClassName="h-[18px] w-[18px]" />
       <OpenInAppButton directory={actionDirectory} className="mr-1" />
       {/* Instances only exist in the desktop app. On web the menu was left

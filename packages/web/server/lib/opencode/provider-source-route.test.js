@@ -13,6 +13,52 @@ const createApp = (getProviderSources) => {
   return app;
 };
 
+describe('provider writes in enterprise mode', () => {
+  const writes = (agent) => [
+    agent.post('/api/integration/openai/connect/key').send({ key: 'sk-test' }),
+    agent.post('/api/integration/anthropic/connect/oauth').send({ methodID: 'claude-pro' }),
+    agent.post('/api/integration/anthropic/connect/oauth/att_1/complete').send({ code: 'x' }),
+    agent.post('/api/integration/github-copilot/connect/command').send({ methodID: 'cli' }),
+    agent.post('/api/experimental/integration/wellknown').send({ url: 'https://example.test' }),
+    agent.put('/api/provider').send({ providerID: 'company-ai', config: {}, scope: 'user' }),
+    // OpenCode routes these to the key handler too.
+    agent.post('/API/integration/openai/connect/key').send({ key: 'sk-test' }),
+    agent.post('/api//integration/openai/connect/key').send({ key: 'sk-test' }),
+    agent.post('/api/integration/openai/%63onnect/key').send({ key: 'sk-test' }),
+    agent.post('/api/integration\\openai\\connect\\key').send({ key: 'sk-test' }),
+    agent.post('/api/experimental/integration/wellknown;x').send({ url: 'https://example.test' }),
+  ];
+
+  it('refuses connecting a provider, adding a key, or creating a custom provider', async () => {
+    process.env.OPENCHAMBER_ENTERPRISE_MODE = '1';
+    try {
+      const agent = request(createApp(vi.fn()));
+      for (const response of await Promise.all(writes(agent))) {
+        expect(response.status).toBe(403);
+        expect(response.body.code).toBe('enterprise_mode');
+      }
+      // Removing an account only narrows access and still reaches OpenCode.
+      expect((await agent.delete('/api/credential/cred_1')).status).toBe(404);
+      // Signing in to a remote MCP server reaches a tool server, not a model provider.
+      const mcpSignIn = [
+        agent.post('/api/integration/mcp_0123456789abcdef/connect/oauth').send({ methodID: 'mcp_0123456789abcdef' }),
+        agent.post('/api/integration/mcp_0123456789abcdef/connect/oauth/att_1/complete').send({ code: 'x' }),
+      ];
+      for (const response of await Promise.all(mcpSignIn)) {
+        expect(response.status).toBe(404);
+      }
+    } finally {
+      delete process.env.OPENCHAMBER_ENTERPRISE_MODE;
+    }
+  });
+
+  it('passes the OpenCode writes on to the proxy otherwise', async () => {
+    const connect = await request(createApp(vi.fn())).post('/api/integration/openai/connect/key').send({ key: 'sk-test' });
+    // No proxy in this app: falling through reads as Express's 404.
+    expect(connect.status).toBe(404);
+  });
+});
+
 describe('GET /api/provider/:providerId/source', () => {
   it('returns the stored config entry next to the layer sources', async () => {
     const stored = {

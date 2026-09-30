@@ -5,6 +5,8 @@ import os from 'node:os';
 import { fetchOpenCodeGoUsage } from './opencodeGoQuota';
 import { deleteLegacyOpenCodeGoCredential, readCredential } from './quotaCredentials';
 import { getProviderAuth, readAuthFile } from './opencodeAuth';
+import { readConfig } from './opencodeConfig';
+import { isRecord, toProviderEntity } from './opencode-config-v2';
 import { fetchExeDevUsage } from './exeDevQuota';
 import { fetchOllamaUsage } from './ollamaQuota';
 
@@ -775,6 +777,18 @@ const durationToSeconds = (duration?: number, unit?: string) => {
   return null;
 };
 
+// OpenCode stores the Kimi For Coding plans as `kimi-code-plan-cn` (kimi.com)
+// and `kimi-code-plan-global` (kimi.ai). The China plan comes first: its key
+// works at the api.kimi.com usage address, and a pre-split `kimi-for-coding`
+// key left behind with a dead credential must not shadow it. The global plan
+// stays last, as before, since its key is not known to work at that address.
+const KIMI_AUTH_ALIASES = ['kimi-code-plan-cn', 'kimi-for-coding', 'kimi', 'kimi-code-plan-global'];
+
+const getKimiApiKey = (auth: AuthFile) => {
+  const entry = normalizeAuthEntry(getAuthEntry(auth, KIMI_AUTH_ALIASES));
+  return asNonEmptyString(entry?.key) ?? asNonEmptyString(entry?.token);
+};
+
 export const listConfiguredQuotaProviders = () => {
   let auth: AuthFile = {};
   try {
@@ -813,8 +827,7 @@ export const listConfiguredQuotaProviders = () => {
     configured.add('zhipuai-coding-plan');
   }
 
-  const kimiAuth = normalizeAuthEntry(getAuthEntry(auth, ['kimi-for-coding', 'kimi', 'kimi-code-plan-global']));
-  if (kimiAuth && ((kimiAuth as Record<string, unknown>).key || (kimiAuth as Record<string, unknown>).token)) {
+  if (getKimiApiKey(auth)) {
     configured.add('kimi-for-coding');
   }
 
@@ -1655,10 +1668,13 @@ const computeKimiUsedPercent = (
   return null;
 };
 
-const fetchKimiQuota = async (): Promise<ProviderResult> => {
-  const auth = readAuthFile();
-  const entry = normalizeAuthEntry(getAuthEntry(auth, ['kimi-for-coding', 'kimi', 'kimi-code-plan-global'])) as Record<string, unknown> | null;
-  const apiKey = (entry?.key as string | undefined) ?? (entry?.token as string | undefined);
+type KimiQuotaDependencies = {
+  readAuth?: () => AuthFile;
+  fetchImpl?: (url: string, options: RequestInit) => Promise<Response>;
+};
+
+export const fetchKimiQuota = async ({ readAuth = readAuthFile, fetchImpl = fetch }: KimiQuotaDependencies = {}): Promise<ProviderResult> => {
+  const apiKey = getKimiApiKey(readAuth());
 
   if (!apiKey) {
     return buildResult({
@@ -1671,7 +1687,7 @@ const fetchKimiQuota = async (): Promise<ProviderResult> => {
   }
 
   try {
-    const response = await fetch('https://api.kimi.com/coding/v1/usages', {
+    const response = await fetchImpl('https://api.kimi.com/coding/v1/usages', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -1966,6 +1982,34 @@ const isOpenRouterPeriod = (value: unknown): value is OpenRouterPeriod => (
   typeof value === 'string' && Object.prototype.hasOwnProperty.call(PERIOD_SECONDS, value)
 );
 
+const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
+
+// The stored key is valid for whichever gateway the configured baseURL points
+// at, so the usage lookup must ride the same base as chat. The endpoint shape
+// stays `<base>/key`; with nothing configured the base is OpenRouter itself.
+// OpenCode takes the address from `settings.baseURL`, legacy `options.baseURL`
+// or legacy `api`, and toProviderEntity folds all three. Each section is read
+// on its own so a v2 entry without an address cannot hide a v1 address that
+// another config file sets.
+// Mirrors packages/web/server/lib/quota/providers/openrouter.js (kept in sync
+// per the quota DOCUMENTATION.md parity note).
+const resolveOpenRouterConfigBase = (): string | null => {
+  try {
+    const config = readConfig();
+    const readBaseURL = (sectionKey: 'providers' | 'provider'): string | null => {
+      const section = config[sectionKey];
+      return isRecord(section) ? asNonEmptyString(toProviderEntity(section.openrouter).settings?.baseURL) : null;
+    };
+    const base = (
+      readBaseURL('providers') ?? readBaseURL('provider')
+    )?.replace(/\/+$/, '');
+    return base || null;
+  } catch {
+    // A config read failure must not take the default-endpoint lookup down.
+    return null;
+  }
+};
+
 const fetchOpenRouterQuota = async (): Promise<ProviderResult> => {
   const auth = readAuthFile();
   const entry = normalizeAuthEntry(getAuthEntry(auth, ['openrouter'])) as Record<string, unknown> | null;
@@ -1984,7 +2028,7 @@ const fetchOpenRouterQuota = async (): Promise<ProviderResult> => {
   const timeoutSignal = AbortSignal.timeout(15_000);
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/key', {
+    const response = await fetch(`${resolveOpenRouterConfigBase() ?? OPENROUTER_API_BASE}/key`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`,

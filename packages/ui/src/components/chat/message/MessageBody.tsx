@@ -14,13 +14,13 @@ import { cn } from '@/lib/utils';
 import { isEmptyTextPart, extractTextContent } from './partUtils';
 import { FadeInOnReveal } from './FadeInOnReveal';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SaveProjectPlanDialog } from '@/components/session/SaveProjectPlanDialog';
 import { ForkSessionDialog, type ForkSessionExecution } from '@/components/session/ForkSessionDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ArrowsMerge } from '@/components/icons/ArrowsMerge';
 
 import { MarkdownImageGallery, SimpleMarkdownRenderer } from '../MarkdownRenderer';
+import { LongErrorText } from '../LongErrorText';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
@@ -79,13 +79,15 @@ const getDisplayFileName = (file: string): string => {
     return segments.at(-1) ?? file;
 };
 
+const CHANGED_FILE_CHIP_CLASS_NAME = 'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/30 bg-muted/30 px-2 py-1 text-xs text-muted-foreground';
+const CHANGED_FILE_CHIP_HOVER_CLASS_NAME = 'transition-colors hover:border-border/60 hover:bg-interactive-hover';
+const CHANGED_FILE_CHIP_STYLE = { lineHeight: 'round(1.35em, 1px)' };
+const CHANGED_FILE_CHIP_BUTTON_CLASS_NAME = 'inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]';
+
 const TurnChangedFileChipContent = React.memo(({ file, interactive = false }: { file: TurnChangedFile; interactive?: boolean }) => (
     <span
-        className={cn(
-            'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/30 bg-muted/30 px-2 py-1 text-xs text-muted-foreground',
-            interactive && 'transition-colors hover:border-border/60 hover:bg-interactive-hover'
-        )}
-        style={{ lineHeight: 'round(1.35em, 1px)' }}
+        className={cn(CHANGED_FILE_CHIP_CLASS_NAME, interactive && CHANGED_FILE_CHIP_HOVER_CLASS_NAME)}
+        style={CHANGED_FILE_CHIP_STYLE}
     >
         <FileTypeIcon filePath={file.file} className="h-3.5 w-3.5 flex-shrink-0" />
         <span className="max-w-52 truncate text-foreground/80" title={file.file}>{getDisplayFileName(file.file)}</span>
@@ -110,7 +112,7 @@ const TurnChangedFilePillButton = React.memo(({
     return (
         <button
             type="button"
-            className="inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
+            className={CHANGED_FILE_CHIP_BUTTON_CLASS_NAME}
             aria-label={t('chat.changedFiles.actions.openFileTitle', { path: file.file })}
             title={file.file}
             onClick={(event) => {
@@ -163,46 +165,57 @@ const InteractiveTurnChangedFilePills = React.memo(({ files }: { files: TurnChan
     );
 });
 
+const CHANGED_FILE_CHIP_LIMIT = 4;
+
+/**
+ * Past the limit one more chip reveals the rest in the row; while they show,
+ * the same chip at the row's end hides them again.
+ */
 const TurnChangedFilePills = React.memo(({ files, isInteractive }: { files?: TurnChangedFile[]; isInteractive: boolean }) => {
     const { t } = useI18n();
     const [expanded, setExpanded] = React.useState(false);
-    const triggerRef = React.useRef<HTMLButtonElement>(null);
+    const toggleRef = React.useRef<HTMLButtonElement>(null);
     React.useLayoutEffect(() => {
-        const trigger = triggerRef.current;
-        if (!expanded && trigger && trigger.ownerDocument.activeElement === trigger) {
+        const toggle = toggleRef.current;
+        if (!expanded && toggle && toggle.ownerDocument.activeElement === toggle) {
             // Keep the focused control visible after a long list shrinks.
-            trigger.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            toggle.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }
     }, [expanded]);
     if (!files || files.length === 0) return null;
 
     const Pills = isInteractive ? InteractiveTurnChangedFilePills : StaticTurnChangedFilePills;
-    const visibleLimit = 4;
-    if (files.length <= visibleLimit) return <Pills files={files} />;
+    const hiddenCount = files.length - CHANGED_FILE_CHIP_LIMIT;
+    if (hiddenCount <= 0) return <Pills files={files} />;
 
+    const label = expanded
+        ? t('chat.changedFiles.actions.showFewer')
+        : t('chat.changedFiles.actions.otherFiles', { count: hiddenCount });
     return (
-        <Collapsible
-            className="contents"
-            open={expanded}
-            onOpenChange={(open) => {
-                if (!open) triggerRef.current?.focus({ preventScroll: true });
-                setExpanded(open);
-            }}
-        >
-            <Pills files={files.slice(0, visibleLimit)} />
-            <CollapsibleContent className={expanded ? 'contents transition-none' : 'hidden transition-none'}>
-                {expanded && <Pills files={files.slice(visibleLimit)} />}
-            </CollapsibleContent>
-            <CollapsibleTrigger
-                ref={triggerRef}
-                render={<Button variant="ghost" size="sm" />}
-                className="w-auto text-muted-foreground"
+        <>
+            <Pills files={expanded ? files : files.slice(0, CHANGED_FILE_CHIP_LIMIT)} />
+            <button
+                ref={toggleRef}
+                type="button"
+                className={CHANGED_FILE_CHIP_BUTTON_CLASS_NAME}
+                aria-expanded={expanded}
+                aria-label={label}
+                title={label}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    setExpanded((value) => !value);
+                }}
             >
-                {expanded
-                    ? t('chat.changedFiles.actions.collapse')
-                    : t('chat.changedFiles.actions.showMore', { count: files.length - visibleLimit })}
-            </CollapsibleTrigger>
-        </Collapsible>
+                <span className={cn(CHANGED_FILE_CHIP_CLASS_NAME, CHANGED_FILE_CHIP_HOVER_CLASS_NAME)} style={CHANGED_FILE_CHIP_STYLE}>
+                    {expanded ? (
+                        // A text line tall, so the icon-only chip matches the file chips.
+                        <span className="inline-flex h-[round(1.35em,1px)] items-center">
+                            <Icon name="arrow-up-s" className="h-3.5 w-3.5" />
+                        </span>
+                    ) : `+${hiddenCount}`}
+                </span>
+            </button>
+        </>
     );
 });
 
@@ -2312,12 +2325,16 @@ const AssistantMessageBody = React.memo(({
                                 <div className="flex items-center gap-3">
                                     <Icon name="information" className="size-4 shrink-0 text-[var(--status-info)]" />
                                     <div className="min-w-0 flex-1 break-words">
-                                        <SimpleMarkdownRenderer
-                                            content={errorMessage ?? ''}
-                                            onShowPopup={onShowPopup}
-                                            className="[&_.markdown-content>*:first-child]:mt-0 [&_.markdown-content>*:last-child]:mb-0"
-                                            enableFileReferences={false}
-                                        />
+                                        <LongErrorText text={errorMessage ?? ''}>
+                                            {(visibleText) => (
+                                                <SimpleMarkdownRenderer
+                                                    content={visibleText}
+                                                    onShowPopup={onShowPopup}
+                                                    className="[&_.markdown-content>*:first-child]:mt-0 [&_.markdown-content>*:last-child]:mb-0"
+                                                    enableFileReferences={false}
+                                                />
+                                            )}
+                                        </LongErrorText>
                                     </div>
                                 </div>
                             </div>

@@ -4,12 +4,13 @@ import { createNotificationTemplateRuntime } from './template-runtime.js';
 
 const originalFetch = globalThis.fetch;
 
-const createRuntime = (settings = {}) => createNotificationTemplateRuntime({
+const createRuntime = (settings = {}, deps = {}) => createNotificationTemplateRuntime({
   readSettingsFromDisk: async () => settings,
   persistSettings: vi.fn(async () => {}),
   buildOpenCodeUrl: (path) => path,
   getOpenCodeAuthHeaders: () => ({}),
   resolveGitBinaryForSpawn: () => 'git',
+  ...deps,
 });
 
 describe('notification template runtime zen models', () => {
@@ -87,5 +88,32 @@ describe('notification template message extraction', () => {
     })));
 
     await expect(runtime.fetchLastAssistantMessageText('session-1', 'msg-1')).resolves.toBe('final answer');
+  });
+});
+
+describe('notification session info fetch', () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('attaches opencode auth headers when fetching session info', async () => {
+    const runtime = createRuntime({}, {
+      getOpenCodeAuthHeaders: () => ({ Authorization: 'Basic dGVzdC1wYXNzd29yZA==' }),
+    });
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      data: { id: 'session-1', title: 'Fetched title' },
+    })));
+    globalThis.fetch = fetchMock;
+
+    const variables = await runtime.buildTemplateVariables({ properties: { info: {} } }, 'session-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/session/session-1');
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+      Accept: 'application/json',
+      Authorization: 'Basic dGVzdC1wYXNzd29yZA==',
+    });
+    expect(variables.session_name).toBe('Fetched title');
   });
 });

@@ -62,6 +62,7 @@ import {
     readTaskSessionIdFromOutput,
     readTaskSessionIdFromRecord,
     resolveRunningTaskChildSessionId,
+    resolveTaskToolEmptyState,
     type TaskToolSummaryEntry,
 } from './taskToolModel';
 import { areRenderRelevantPartsEqual } from '../renderCompare';
@@ -1044,7 +1045,8 @@ const TaskToolSummary: React.FC<{
     input?: Record<string, unknown>;
     animateTailText?: boolean;
     isActive?: boolean;
-}> = ({ entries, isExpanded, isMobile, output, sessionId, onShowPopup, input, animateTailText = true, isActive = false }) => {
+    error?: string;
+}> = ({ entries, isExpanded, isMobile, output, sessionId, onShowPopup, input, animateTailText = true, isActive = false, error }) => {
     const { t } = useI18n();
     const currentDirectory = useEffectiveDirectory();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
@@ -1081,12 +1083,31 @@ const TaskToolSummary: React.FC<{
         ? input.agent
         : 'subagent';
 
-    if (entries.length === 0 && !hasOutput && !sessionId) {
+    const emptyState = resolveTaskToolEmptyState({
+        hasEntries: entries.length > 0,
+        hasOutput,
+        hasSessionId: Boolean(sessionId),
+        isActive,
+        error,
+    });
+
+    if (emptyState.kind !== 'content') {
         return (
             <div className="relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]">
-                <div className="typography-meta text-muted-foreground/70">
-                    {isActive ? 'Waiting for subagent activity...' : 'No subagent session id on task metadata.'}
-                </div>
+                {emptyState.kind === 'blocked' ? (
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={cn(TOOL_ROW_TITLE_CLASS, 'flex-shrink-0')} style={TOOL_ERROR_TITLE_STYLE}>
+                            {t('chat.toolPart.blocked')}
+                        </span>
+                        <span className={cn('min-w-0 truncate', TOOL_ROW_DESCRIPTION_CLASS)} style={{ color: 'var(--tools-description)' }} title={emptyState.reason}>
+                            {emptyState.reason}
+                        </span>
+                    </div>
+                ) : (
+                    <div className="typography-meta text-muted-foreground/70">
+                        {emptyState.kind === 'waiting' ? 'Waiting for subagent activity...' : 'No subagent session id on task metadata.'}
+                    </div>
+                )}
             </div>
         );
     }
@@ -2381,6 +2402,7 @@ const ToolPartContent: React.FC<ToolPartProps & { background?: BackgroundShellHe
                     input={input}
                     animateTailText={animateTailText}
                     isActive={isActive}
+                    error={coerceToText(stateWithData.error)}
                 />
             ) : null}
 

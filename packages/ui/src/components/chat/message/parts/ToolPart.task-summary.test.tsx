@@ -269,3 +269,21 @@ test('progress metadata takes precedence over a different explicit child id', as
     expect(container.textContent).not.toContain('input.ts');
   });
 });
+
+test('a task() call blocked before spawn renders a terminal BLOCKED row with the reason', async () => {
+  const blocked: ToolPartData = {
+    ...parent,
+    state: {
+      status: 'error',
+      input: { description: 'Look around', agent: 'explore' },
+      error: 'agent depth limit reached',
+      time: { start: 100, end: 101 },
+    },
+  };
+  await withHarness(blocked, async (_store, container) => {
+    expect(container.textContent).toContain('Blocked');
+    expect(container.textContent).toContain('agent depth limit reached');
+    expect(container.textContent).not.toContain('No subagent session id on task metadata.');
+    expect(container.textContent).not.toContain('Waiting for subagent activity');
+  });
+});

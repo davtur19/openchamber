@@ -223,3 +223,28 @@ export const prepareTaskToolOutput = (output: string | undefined): string => {
     if (!output) return '';
     return capToolOutputText(stripTaskMetadataFromOutput(unwrapSubagentEnvelope(unwrapTaskResultEnvelope(output))));
 };
+
+export type TaskToolEmptyState =
+    | { kind: 'content' }
+    | { kind: 'waiting' }
+    | { kind: 'blocked'; reason: string }
+    | { kind: 'missingMetadata' };
+
+export const resolveTaskToolEmptyState = (input: {
+    hasEntries: boolean;
+    hasOutput: boolean;
+    hasSessionId: boolean;
+    isActive: boolean;
+    error?: string;
+}): TaskToolEmptyState => {
+    if (input.hasEntries || input.hasOutput || input.hasSessionId) {
+        return { kind: 'content' };
+    }
+    if (input.isActive) {
+        return { kind: 'waiting' };
+    }
+    if (input.error) {
+        return { kind: 'blocked', reason: input.error };
+    }
+    return { kind: 'missingMetadata' };
+};

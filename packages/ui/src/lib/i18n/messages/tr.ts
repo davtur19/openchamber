@@ -2437,6 +2437,7 @@ export const dict = {
   'chat.toolPart.moreRows': '+{count} satır daha',
   'chat.toolPart.error': 'Hata:',
   'chat.toolPart.awaitingResponse': 'Yanıt bekleniyor...',
+  'chat.toolPart.blocked': 'Engellendi',
   'chat.toolPart.noOutputProduced': 'Çıktı üretilmedi',
   'chat.toolPart.questionsAsked': 'Sorulan sorular: {count}',
   'chat.toolPart.filesCount': 'Dosyalar: {count}',

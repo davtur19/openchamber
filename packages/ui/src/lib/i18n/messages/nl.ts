@@ -2507,6 +2507,7 @@ export const dict = {
   'chat.toolPart.moreRows': '+{count} meer rijen',
   'chat.toolPart.error': 'Fout:',
   'chat.toolPart.awaitingResponse': 'Wachten op antwoord...',
+  'chat.toolPart.blocked': 'Geblokkeerd',
   'chat.toolPart.noOutputProduced': 'Geen uitvoer',
   'chat.toolPart.questionsAsked': 'Gestelde vragen: {count}',
   'chat.toolPart.filesCount': 'Bestanden: {count}',

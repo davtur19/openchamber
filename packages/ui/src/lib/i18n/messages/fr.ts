@@ -2208,6 +2208,7 @@ export const dict = {
   'chat.toolPart.outputTruncated': 'La sortie a été tronquée',
   'chat.toolPart.output': 'Sortie',
   'chat.toolPart.openSubtask': 'Ouvrir la sous-tâche {type}',
+  'chat.toolPart.blocked': 'Bloqué',
   'chat.todo.total': 'Total',
   'chat.todo.inProgress': 'En cours',
   'chat.todo.pending': 'En attente',

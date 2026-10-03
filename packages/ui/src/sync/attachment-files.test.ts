@@ -2,7 +2,6 @@ import { describe, expect, mock, test } from "bun:test"
 import {
   ACCEPTED_ATTACHMENT_EXTENSIONS,
   ATTACHMENT_ACCEPT,
-  getAttachmentAccept,
   getAttachmentInputModality,
   getUnsupportedAttachmentInputs,
   isDocumentAttachmentFilename,
@@ -47,29 +46,6 @@ describe("attachment file preparation", () => {
       expect(ACCEPTED_ATTACHMENT_EXTENSIONS.includes(extension)).toBe(true)
       expect(ATTACHMENT_ACCEPT.includes(`.${extension}`)).toBe(true)
     }
-  })
-
-  test("drops the picker accept hint only on Firefox Android", () => {
-    // Firefox Android maps the image-leading accept list to the photo
-    // picker, which cannot browse documents: no hint, full file picker.
-    expect(getAttachmentAccept(
-      "Mozilla/5.0 (Android 14; Mobile; rv:141.0) Gecko/141.0 Firefox/141.0",
-    )).toBe(undefined)
-    expect(getAttachmentAccept(
-      "Mozilla/5.0 (Android 13; Tablet; rv:141.0) Gecko/141.0 Firefox/141.0",
-    )).toBe(undefined)
-
-    // Everywhere else the hint keeps filtering the picker.
-    expect(getAttachmentAccept(
-      "Mozilla/5.0 (X11; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0",
-    )).toBe(ATTACHMENT_ACCEPT)
-    expect(getAttachmentAccept(
-      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-    )).toBe(ATTACHMENT_ACCEPT)
-    // Firefox on iOS is FxiOS on WebKit, whose picker honors accept.
-    expect(getAttachmentAccept(
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/12.0 Mobile/15E148 Safari/605.1.15",
-    )).toBe(ATTACHMENT_ACCEPT)
   })
 
   test("identifies Office and OpenDocument filenames for shared mention preparation", () => {

@@ -44,6 +44,7 @@ mock.module('./opencodeConfig', () => ({
   removeProviderConfig: mock(),
   getProviderSources: mock(),
   getStoredProviderConfig: mock(),
+  readConfig: mock(() => ({})),
   upsertProviderConfig: mock(),
 }));
 mock.module('./opencodeAuth', () => ({

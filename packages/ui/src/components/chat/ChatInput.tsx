@@ -14,7 +14,7 @@ import { useParallelComposer } from './composer/parallel/useParallelComposer';
 import { ParallelComposerStrip } from './composer/parallel/ParallelComposerStrip';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
-    ATTACHMENT_ACCEPT,
+    getAttachmentAccept,
     getUnsupportedAttachmentInputs,
     isDocumentAttachmentFilename,
     type AttachmentInputModality,
@@ -4265,7 +4265,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             multiple
             className="hidden"
             onChange={handleLocalFileSelect}
-            accept={ATTACHMENT_ACCEPT}
+            accept={getAttachmentAccept(navigator.userAgent)}
         />
 
         {/* Mobile attachment sheet: replaces the dropdown (which stole focus and

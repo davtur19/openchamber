@@ -109,6 +109,22 @@ const ACCEPTED_ATTACHMENT_TYPES = [
 
 export const ATTACHMENT_ACCEPT = ACCEPTED_ATTACHMENT_TYPES.join(",")
 
+/**
+ * The `accept` hint for the chat file picker, `undefined` to offer every file.
+ *
+ * Firefox Android turns the image-leading accept list into the system photo
+ * picker, which cannot browse outside images: documents and code files are
+ * unreachable, and the known workaround for that browser is dropping the
+ * attribute. The hint only filters what the picker offers —
+ * `prepareAttachmentFiles` still validates and normalizes whatever comes
+ * back — so Firefox Android gets none of it.
+ */
+export const getAttachmentAccept = (userAgent: string): string | undefined => (
+  /firefox/i.test(userAgent) && /android/i.test(userAgent)
+    ? undefined
+    : ATTACHMENT_ACCEPT
+)
+
 const PICKER_MIME_EXTENSIONS = new Map<string, string>([
   ["image/png", "png"],
   ["image/jpeg", "jpg"],

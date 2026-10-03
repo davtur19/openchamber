@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { createRequire } from 'node:module';
 
 import { isAgentMemoryFeatureAvailable } from '../agent-memory/feature-flag.js';
@@ -35,6 +36,26 @@ import {
   isInputHistoryLimit,
   isInputHistoryScope,
 } from './input-history-scope.js';
+
+// Icons a custom provider may show instead of its logo; mirrors
+// CUSTOM_PROVIDER_ICONS in packages/ui/src/lib/customProviderIcons.ts.
+const customProviderIconsSchema = z.record(
+  z.string().trim().min(1).max(128),
+  z.enum(['server', 'cloud', 'database', 'terminal', 'code', 'ai']),
+);
+const CUSTOM_PROVIDER_ICONS_MAX = 256;
+
+/** Provider id -> icon id; unknown icons and malformed entries are dropped one by one. */
+const sanitizeCustomProviderIcons = (value) => {
+  const record = z.record(z.string(), z.unknown()).safeParse(value);
+  if (!record.success) return undefined;
+  const result = {};
+  for (const [providerID, icon] of Object.entries(record.data).slice(0, CUSTOM_PROVIDER_ICONS_MAX)) {
+    const entry = customProviderIconsSchema.safeParse({ [providerID]: icon });
+    if (entry.success) Object.assign(result, entry.data);
+  }
+  return result;
+};
 
 export const createSettingsHelpers = (dependencies) => {
   const {
@@ -406,7 +427,7 @@ export const createSettingsHelpers = (dependencies) => {
     }
     if (typeof candidate.largeTextPasteBehavior === 'string') {
       const mode = candidate.largeTextPasteBehavior.trim();
-      if (mode === 'ask' || mode === 'attach' || mode === 'inline') {
+      if (mode === 'ask' || mode === 'attach' || mode === 'inline' || mode === 'inline-double-paste') {
         result.largeTextPasteBehavior = mode;
       }
     }
@@ -437,6 +458,9 @@ export const createSettingsHelpers = (dependencies) => {
     if (candidate.sessionGoalChecker === 'classifier' || candidate.sessionGoalChecker === 'small-model') {
       result.sessionGoalChecker = candidate.sessionGoalChecker;
     }
+    if (Number.isInteger(candidate.sessionGoalMaxAutoTurns) && candidate.sessionGoalMaxAutoTurns >= 0 && candidate.sessionGoalMaxAutoTurns <= 10_000) {
+      result.sessionGoalMaxAutoTurns = candidate.sessionGoalMaxAutoTurns;
+    }
     if (typeof candidate.sessionGoalDefaultBudgetEnabled === 'boolean') {
       result.sessionGoalDefaultBudgetEnabled = candidate.sessionGoalDefaultBudgetEnabled;
     }
@@ -445,9 +469,6 @@ export const createSettingsHelpers = (dependencies) => {
     }
     if (typeof candidate.sessionGoalObjectiveCharLimit === 'number' && Number.isFinite(candidate.sessionGoalObjectiveCharLimit) && candidate.sessionGoalObjectiveCharLimit >= 500) {
       result.sessionGoalObjectiveCharLimit = Math.min(200_000, Math.floor(candidate.sessionGoalObjectiveCharLimit));
-    }
-    if (typeof candidate.sessionGoalMaxAutoTurns === 'number' && Number.isFinite(candidate.sessionGoalMaxAutoTurns) && candidate.sessionGoalMaxAutoTurns >= 0) {
-      result.sessionGoalMaxAutoTurns = Math.min(10_000, Math.floor(candidate.sessionGoalMaxAutoTurns));
     }
     if (typeof candidate.collapsibleThinkingBlocks === 'boolean') {
       result.collapsibleThinkingBlocks = candidate.collapsibleThinkingBlocks;
@@ -512,6 +533,9 @@ export const createSettingsHelpers = (dependencies) => {
     }
     if (typeof candidate.sessionRetentionOnlyArchived === 'boolean') {
       result.sessionRetentionOnlyArchived = candidate.sessionRetentionOnlyArchived;
+    }
+    if (typeof candidate.mergedWorktreeCleanupEnabled === 'boolean') {
+      result.mergedWorktreeCleanupEnabled = candidate.mergedWorktreeCleanupEnabled;
     }
     if (candidate.tunnelBootstrapTtlMs === null) {
       result.tunnelBootstrapTtlMs = null;
@@ -779,6 +803,11 @@ export const createSettingsHelpers = (dependencies) => {
 
     if (Array.isArray(candidate.collapsedModelProviders)) {
       result.collapsedModelProviders = normalizeStringArray(candidate.collapsedModelProviders);
+    }
+
+    const customProviderIcons = sanitizeCustomProviderIcons(candidate.customProviderIcons);
+    if (customProviderIcons) {
+      result.customProviderIcons = customProviderIcons;
     }
 
     if (Array.isArray(candidate.recentAgents)) {

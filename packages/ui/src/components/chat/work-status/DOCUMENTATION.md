@@ -110,6 +110,21 @@ which requests only providers enabled for this panel.
 | Pinned messages | `getContextObligatoryMessages` + `state.part`, else one `getSessionMessage` read | see below |
 | Todos | live `state.todo[sessionId]`, persisted fallback | live channel wins |
 
+### Subagent rows
+
+Subagent status uses the Tasks section's leading icons: blue for busy/retrying,
+green for idle, and a neutral clock while status is unknown. A successful status
+snapshot also establishes idle for omitted sessions in that same directory.
+Permission requests and questions take precedence with a warning icon and text.
+Running rows reuse `SessionActivityDuration` and its shared one-second ticker
+for the current turn's elapsed time, including retries and waiting within that
+turn. No timer is shown until the activity store has an observed start; blocked,
+settled, and collapsed rows do not mount a running counter.
+
+Hovering or focusing a row shows its session model's catalog display name,
+falling back to the formatted model ID. Missing model metadata produces no
+tooltip. Model-only session updates invalidate the live-session comparison.
+
 ### Turn stats
 
 The section follows Usage by default and reuses the panel's existing rows. Only its header
@@ -137,6 +152,10 @@ Either rate above 5,000 tok/s is reported as unknown. No provider streams that
 fast, so such a value means the measured window is broken: a tool that runs
 for nearly the whole step leaves a residual of a millisecond, and a text
 interval can be equally short. The row is omitted rather than shown wrong.
+
+Elapsed time is wall-clock time from the first user message in the turn through
+the final assistant completion. It includes model waits, tool execution,
+compaction, and other gaps; it is not used as a throughput denominator.
 
 Metric labels stay short. Every row is a single hover and keyboard-focus target
 for a shared tooltip, with a 750ms hover delay and a portal outside the panel's
@@ -422,10 +441,13 @@ something other than "tools available".
 
 ### Linked issues and pull requests
 
-Written by the flows that already attach a thread — the composer's issue/PR
-pickers, and session creation from an issue or PR in `NewWorktreeDialog` and
-`GitHubIssuePickerDialog`. There is no manual "link this" control: attaching a
-thread to the work *is* the act of linking it.
+Written by the flows that already attach a thread — sending a message with
+issues, PRs or guest items attached in the composer, and session creation from
+an issue or PR in `NewWorktreeDialog`. There is no manual "link this" control:
+attaching a thread to the work *is* the act of linking it. A message's
+references are written in one metadata patch (`sessionActions.addLinkedIssues`):
+each write replaces the whole list, so one write per item would keep only the
+last.
 
 Stored in session metadata as a **snapshot** (`lib/linkedIssues.ts`, namespace
 `openchamber.linked_issues`), riding the same `patchSessionMetadata` channel as

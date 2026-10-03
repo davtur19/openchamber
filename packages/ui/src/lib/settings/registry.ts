@@ -32,11 +32,13 @@ import { useInputHistoryStore } from '@/stores/useInputHistoryStore';
 import { useMessageQueueStore } from '@/stores/messageQueueStore';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useUIStore, type FileEditorKeymap, type LargeTextPasteBehavior } from '@/stores/useUIStore';
+import { isSessionGoalMaxAutoTurns } from '@/lib/sessionGoalTurnLimit';
 import { z } from 'zod';
 import {
   fromSchema,
   mapParser,
   parseBoolean,
+  parseCustomProviderIcons,
   parseDesktopWindowControlsPosition,
   parseFiniteNumber,
   parseFollowUpBehavior,
@@ -185,7 +187,7 @@ const parseDraftStarters: SettingsParser<DraftStarterRef[]> = mapParser(fromSche
 // Unknown ids are dropped rather than kept: they would hide nothing and
 // accumulate forever as sections get renamed.
 const parseWorkStatusHiddenSections: SettingsParser<string[]> = mapParser(fromSchema(z.array(z.unknown())), (value) => sanitizeWorkStatusHiddenSections(value));
-const parseLargeTextPasteBehavior: SettingsParser<LargeTextPasteBehavior> = parseOneOf(['ask', 'attach', 'inline']);
+const parseLargeTextPasteBehavior: SettingsParser<LargeTextPasteBehavior> = parseOneOf(['ask', 'attach', 'inline', 'inline-double-paste']);
 const parseFileEditorKeymap: SettingsParser<FileEditorKeymap> = parseOneOf(['default', 'vim']);
 
 /**
@@ -304,6 +306,7 @@ export const SETTINGS_REGISTRY = {
   // Apply scope before action so leaving archived-only mode can restore an incoming archive choice.
   sessionRetentionOnlyArchived: field({ scope: 'instance', parse: parseBoolean, ui: uiStore('sessionRetentionOnlyArchived', (v) => useUIStore.getState().setSessionRetentionOnlyArchived(v)) }),
   sessionRetentionAction: field({ scope: 'instance', parse: parseOneOf(['archive', 'delete']), ui: uiStore('sessionRetentionAction', (v) => useUIStore.getState().setSessionRetentionAction(v)) }),
+  mergedWorktreeCleanupEnabled: field({ scope: 'instance', parse: parseBoolean, ui: uiStore('mergedWorktreeCleanupEnabled', (v) => useUIStore.getState().setMergedWorktreeCleanupEnabled(v)) }),
   terminalShell: field({ scope: 'instance', parse: parseTerminalShell, ui: uiStore('terminalShell', (v) => useUIStore.getState().setTerminalShell(v)) }),
   terminalLoginShells: field({ scope: 'instance', parse: parseTerminalShells(isTerminalShell), ui: uiStore('terminalLoginShells', (v) => useUIStore.getState().setTerminalLoginShells(v)) }),
   openInAppId: field({ scope: 'instance', parse: parseNonEmptyTrimmedString }),
@@ -483,6 +486,7 @@ export const SETTINGS_REGISTRY = {
   favoriteModels: field<ModelRef[]>({ scope: 'profile', parse: parseModelRefs(64), ui: uiStore('favoriteModels', setUi('favoriteModels'), { autoSave: false }) }),
   hiddenModels: field<ModelRef[]>({ scope: 'profile', parse: parseModelRefs(1024), ui: uiStore('hiddenModels', setUi('hiddenModels'), { autoSave: false }) }),
   collapsedModelProviders: field({ scope: 'profile', parse: parseStringSet, ui: uiStore('collapsedModelProviders', setUi('collapsedModelProviders'), { autoSave: false }) }),
+  customProviderIcons: field({ scope: 'profile', parse: parseCustomProviderIcons, ui: uiStore('customProviderIcons', setUi('customProviderIcons'), { autoSave: false }) }),
   recentModels: field<ModelRef[]>({ scope: 'profile', parse: parseModelRefs(16), ui: uiStore('recentModels', setUi('recentModels'), { autoSave: false }) }),
   recentAgents: field({ scope: 'profile', parse: parseStringSet, ui: uiStore('recentAgents', setUi('recentAgents'), { autoSave: false }) }),
   recentEfforts: field({ scope: 'profile', parse: parseRecentEfforts, ui: uiStore('recentEfforts', setUi('recentEfforts'), { autoSave: false }) }),
@@ -503,10 +507,15 @@ export const SETTINGS_REGISTRY = {
     parse: parseOneOf(['classifier', 'small-model']),
     ui: uiStore('sessionGoalChecker', (v) => useUIStore.getState().setSessionGoalChecker(v)),
   }),
+  sessionGoalMaxAutoTurns: field({
+    scope: 'profile',
+    surfaces: ['web', 'desktop', 'mobile'],
+    parse: fromSchema(z.number().refine(isSessionGoalMaxAutoTurns)),
+    ui: uiStore('sessionGoalMaxAutoTurns', (v) => useUIStore.getState().setSessionGoalMaxAutoTurns(v)),
+  }),
   sessionGoalDefaultBudgetEnabled: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('sessionGoalDefaultBudgetEnabled', (v) => useUIStore.getState().setSessionGoalDefaultBudgetEnabled(v)) }),
   sessionGoalDefaultBudget: field({ scope: 'profile', parse: parsePositiveInteger, ui: uiStore('sessionGoalDefaultBudget', (v) => useUIStore.getState().setSessionGoalDefaultBudget(v)) }),
   sessionGoalObjectiveCharLimit: field({ scope: 'profile', parse: parseIntegerInRange(500, 200_000), ui: uiStore('sessionGoalObjectiveCharLimit', (v) => useUIStore.getState().setSessionGoalObjectiveCharLimit(v)) }),
-  sessionGoalMaxAutoTurns: field({ scope: 'profile', parse: parseIntegerInRange(0, 10_000), ui: uiStore('sessionGoalMaxAutoTurns', (v) => useUIStore.getState().setSessionGoalMaxAutoTurns(v)) }),
   summarizeLastMessage: field({ scope: 'profile', parse: parseBoolean, ui: uiStore('summarizeLastMessage', (v) => useUIStore.getState().setSummarizeLastMessage(v)) }),
   summaryThreshold: field({ scope: 'profile', parse: parseIntegerAtLeast(0), ui: uiStore('summaryThreshold', (v) => useUIStore.getState().setSummaryThreshold(v)) }),
   summaryLength: field({ scope: 'profile', parse: parseIntegerAtLeast(10), ui: uiStore('summaryLength', (v) => useUIStore.getState().setSummaryLength(v)) }),

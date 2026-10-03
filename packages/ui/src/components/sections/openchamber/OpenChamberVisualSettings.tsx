@@ -34,6 +34,8 @@ import { loadDesktopSettings, updateDesktopSettings } from '@/lib/persistence';
 import { CODE_FONT_OPTIONS, DEFAULT_MONO_FONT, DEFAULT_UI_FONT, UI_FONT_OPTIONS, type MonoFontOption, type UiFontOption } from '@/lib/fontOptions';
 import { useI18n, type Locale } from '@/lib/i18n';
 import { useConfigStore } from '@/stores/useConfigStore';
+import { useEnterpriseMode } from '@/stores/useEnterprisePolicyStore';
+import { useFontPreferences } from '@/hooks/useFontPreferences';
 import { normalizeMobileKeyboardMode, supportsMobileKeyboardResizeContent, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import {
     setDirectoryShowHidden,
@@ -60,6 +62,7 @@ import {
     SETTINGS_NUMBER_INPUT_CLASS,
     SETTINGS_FIELDS_STACK_CLASS,
     SETTINGS_OPTION_STACK_CLASS,
+    SETTINGS_HELPER_CLASS,
 } from '@/components/sections/shared/SettingsSection';
 import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
@@ -74,7 +77,7 @@ import { isTerminalShell } from '@/lib/terminalShell';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { formatShortcutForDisplay } from '@/lib/shortcuts';
 import { useInputHistoryStore } from '@/stores/useInputHistoryStore';
-import { SessionGoalCheckerField } from './SessionGoalCheckerField';
+import { SessionGoalCheckerField, SessionGoalMaxTurnsField } from './SessionGoalCheckerField';
 
 interface Option<T extends string> {
     id: T;
@@ -288,6 +291,10 @@ const LARGE_TEXT_PASTE_BEHAVIOR_OPTIONS: Option<LargeTextPasteBehavior>[] = [
         id: 'inline',
         labelKey: 'settings.openchamber.visual.option.largeTextPaste.inline.label',
     },
+    {
+        id: 'inline-double-paste',
+        labelKey: 'settings.openchamber.visual.option.largeTextPaste.inlineDoublePaste.label',
+    },
 ];
 
 const INPUT_HISTORY_SCOPE_OPTIONS: Option<InputHistoryScope>[] = [
@@ -342,8 +349,6 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
     const setSessionGoalDefaultBudget = useUIStore(state => state.setSessionGoalDefaultBudget);
     const sessionGoalObjectiveCharLimit = useUIStore(state => state.sessionGoalObjectiveCharLimit);
     const setSessionGoalObjectiveCharLimit = useUIStore(state => state.setSessionGoalObjectiveCharLimit);
-    const sessionGoalMaxAutoTurns = useUIStore(state => state.sessionGoalMaxAutoTurns);
-    const setSessionGoalMaxAutoTurns = useUIStore(state => state.setSessionGoalMaxAutoTurns);
     const setShowReasoningTraces = useUIStore(state => state.setShowReasoningTraces);
     const streamingAutoFollowEnabled = useUIStore(state => state.streamingAutoFollowEnabled);
     const setStreamingAutoFollowEnabled = useUIStore(state => state.setStreamingAutoFollowEnabled);
@@ -382,10 +387,12 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
     const setTerminalLoginShells = useUIStore(state => state.setTerminalLoginShells);
     const editorFontSize = useUIStore(state => state.editorFontSize);
     const setEditorFontSize = useUIStore(state => state.setEditorFontSize);
-    const uiFont = useUIStore(state => state.uiFont);
+    // The fonts in effect: enterprise mode shows the system font where the
+    // stored choice would load from a CDN (useFontPreferences).
+    const { uiFont, monoFont } = useFontPreferences();
     const setUiFont = useUIStore(state => state.setUiFont);
-    const monoFont = useUIStore(state => state.monoFont);
     const setMonoFont = useUIStore(state => state.setMonoFont);
+    const webFontsBlocked = useEnterpriseMode();
     const padding = useUIStore(state => state.padding);
     const setPadding = useUIStore(state => state.setPadding);
     const inputBarOffset = useUIStore(state => state.inputBarOffset);
@@ -1288,7 +1295,7 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {UI_FONT_OPTIONS.map((option) => (
-                                                    <SelectItem key={option.id} value={option.id}>
+                                                    <SelectItem key={option.id} value={option.id} disabled={webFontsBlocked && Boolean(option.source)}>
                                                         <span style={{ fontFamily: option.stack }}>{option.label}</span>
                                                     </SelectItem>
                                                 ))}
@@ -1318,7 +1325,7 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {CODE_FONT_OPTIONS.map((option) => (
-                                                    <SelectItem key={option.id} value={option.id}>
+                                                    <SelectItem key={option.id} value={option.id} disabled={webFontsBlocked && Boolean(option.source)}>
                                                         <span style={{ fontFamily: option.stack }}>{option.label}</span>
                                                     </SelectItem>
                                                 ))}
@@ -1338,6 +1345,9 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
                                     </SettingsStackedField>
                                 )}
                             </SettingsTwoColumn>
+                        ) : null}
+                        {webFontsBlocked && ((shouldShow('fontSize') && !isMobile) || shouldShow('terminalFontSize')) ? (
+                            <p className={SETTINGS_HELPER_CLASS}>{t('settings.openchamber.visual.field.webFontsEnterprise')}</p>
                         ) : null}
 
                         {(shouldShow('fontSize') && !isMobile) || shouldShow('terminalFontSize') || shouldShow('editorFontSize') ? (
@@ -1954,6 +1964,7 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
                                             settingsItem="chat.session-goal"
                                         />
                                         <SessionGoalCheckerField disabled={!sessionGoalEnabled} />
+                                        <SessionGoalMaxTurnsField disabled={!sessionGoalEnabled} />
                                         <div data-settings-item="chat.session-goal-budget" className="flex items-center gap-2">
                                             <SettingsCheckboxRow
                                                 checked={sessionGoalDefaultBudgetEnabled}
@@ -1993,28 +2004,6 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
                                                 max={200000}
                                                 step={1000}
                                             />
-                                        </div>
-                                        <div data-settings-item="chat.session-goal-max-turns" className="flex items-center gap-2">
-                                            <SettingsCheckboxRow
-                                                checked={sessionGoalMaxAutoTurns !== 0}
-                                                onChange={(checked) => setSessionGoalMaxAutoTurns(checked ? 20 : 0)}
-                                                disabled={!sessionGoalEnabled}
-                                                label={t('settings.openchamber.visual.goal.maxTurnsLabel')}
-                                                ariaLabel={t('settings.openchamber.visual.goal.maxTurnsAria')}
-                                            />
-                                            {sessionGoalEnabled && sessionGoalMaxAutoTurns !== 0 ? (
-                                                <NumberInput
-                                                    value={sessionGoalMaxAutoTurns}
-                                                    onValueChange={(value) => {
-                                                        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-                                                            setSessionGoalMaxAutoTurns(Math.floor(value));
-                                                        }
-                                                    }}
-                                                    min={1}
-                                                    max={10000}
-                                                    step={5}
-                                                />
-                                            ) : null}
                                         </div>
                                     </SettingsSection>
                                 )}

@@ -607,6 +607,13 @@ describe('settings helpers', () => {
       expect(hiddenResult.hiddenModels).toEqual(favoriteResult.favoriteModels);
     });
 
+    it('keeps custom provider icons it knows and drops the rest entry by entry', () => {
+      const helpers = createTestHelpersWithRealSanitizers();
+      expect(helpers.sanitizeSettingsUpdate({
+        customProviderIcons: { 'campus-llm': 'cloud', other: 'rocket', '': 'server', local: 'ai' },
+      })).toEqual({ customProviderIcons: { 'campus-llm': 'cloud', local: 'ai' } });
+    });
+
     it('round-trips collapsedModelProviders and recentAgents as string arrays', () => {
       const helpers = createTestHelpersWithRealSanitizers();
 
@@ -772,7 +779,7 @@ describe('settings registry gate', () => {
     desktopUiPassword: 'secret', githubClientId: 'client', githubScopes: 'repo', skillCatalogs: [{ id: 'c', label: 'C', source: 'https://x' }],
     defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true,
     agentControlToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentNotifyToolEnabled: true, agentToolsCodeMode: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, openCodeUpdateToastDismissedVersion: '1.0.0',
-    autoDeleteEnabled: true, autoDeleteAfterDays: 30, sessionRetentionOnlyArchived: false, sessionRetentionAction: 'archive', terminalShell: 'zsh', terminalLoginShells: ['zsh'],
+    autoDeleteEnabled: true, autoDeleteAfterDays: 30, sessionRetentionOnlyArchived: false, sessionRetentionAction: 'archive', mergedWorktreeCleanupEnabled: true, terminalShell: 'zsh', terminalLoginShells: ['zsh'],
     openInAppId: 'vscode', dictationEnabled: true, sttProvider: 'local', sttServerUrl: 'http://localhost:8001/v1', sttModel: 'm', sttLocalModel: 'm', sttLanguage: 'en',
     tunnelProvider: 'cloudflare', tunnelMode: 'quick', tunnelBootstrapTtlMs: 600000, tunnelSessionTtlMs: 86400000, managedLocalTunnelConfigPath: '/tmp/x',
     managedRemoteTunnelHostname: 'x.example', managedRemoteTunnelToken: 'token', managedRemoteTunnelPresets: [{ id: 'a', name: 'A', hostname: 'a.example' }],
@@ -795,10 +802,10 @@ describe('settings registry gate', () => {
     walkthroughModelOverride: 'anthropic/claude', zenModel: 'zen/model',
     favoriteModels: [{ providerID: 'anthropic', modelID: 'claude' }], hiddenModels: [{ providerID: 'openai', modelID: 'gpt' }], collapsedModelProviders: ['openai'],
     recentModels: [{ providerID: 'anthropic', modelID: 'claude' }], recentAgents: ['build'], recentEfforts: { 'anthropic/claude': ['high'] }, providerOrder: ['anthropic'],
-    sessionRecapEnabled: true, sessionSuggestionEnabled: true, sessionWorkEnabled: true, sessionWorkAutoOpen: true, sessionGoalEnabled: true, sessionGoalChecker: 'small-model', sessionGoalDefaultBudgetEnabled: true, sessionGoalDefaultBudget: 5,
-    // Fork-only registry keys: upstream dropped these settings, the fork keeps
-    // them, so the drift gate needs fixtures here too.
-    sessionGoalObjectiveCharLimit: 5000, sessionGoalMaxAutoTurns: 3,
+    sessionRecapEnabled: true, sessionSuggestionEnabled: true, sessionWorkEnabled: true, sessionWorkAutoOpen: true, sessionGoalEnabled: true, sessionGoalChecker: 'small-model', sessionGoalMaxAutoTurns: 50, sessionGoalDefaultBudgetEnabled: true, sessionGoalDefaultBudget: 5,
+    // Fork-only registry key: upstream dropped this setting, the fork keeps
+    // it, so the drift gate needs a fixture entry here too.
+    sessionGoalObjectiveCharLimit: 5000,
     summarizeLastMessage: true, summaryThreshold: 100, summaryLength: 50, maxLastMessageLength: 200, showDeletionDialog: true,
     nativeNotificationsEnabled: true, notificationMode: 'always', notifyOnSubtasks: true, notifyOnCompletion: true, notifyOnError: true, notifyOnQuestion: true,
     notificationTemplates: { completion: { title: 't', message: 'm' } }, showOpenCodeUpdateNotifications: true, reportUsage: true,
@@ -807,6 +814,7 @@ describe('settings registry gate', () => {
     globalBehaviorPrompt: 'Be brief.', responseStyleEnabled: true, responseStylePreset: 'concise', responseStyleCustomInstructions: 'x',
     pwaAppName: 'OpenChamber', pwaOrientation: 'portrait', mobileKeyboardMode: 'native', desktopWindowControlsPosition: 'left', desktopWindowControlsStyle: 'classic',
     inputBarOffset: 10,
+    customProviderIcons: { 'campus-llm': 'cloud' },
   };
 
   it('accepts a valid value for every persistable registry key (no server-side drift)', () => {
@@ -879,6 +887,11 @@ describe('settings registry gate', () => {
 
   it('accepts the newly shared profile fields', () => {
     const helpers = createTestHelpersWithRealSanitizers();
+    for (const mode of ['ask', 'attach', 'inline', 'inline-double-paste']) {
+      const accepted = helpers.sanitizeSettingsUpdate({ largeTextPasteBehavior: mode });
+      expect(accepted).toEqual({ largeTextPasteBehavior: mode });
+      expect(helpers.formatSettingsResponse(helpers.mergePersistedSettings({}, accepted))).toMatchObject({ largeTextPasteBehavior: mode });
+    }
     expect(helpers.sanitizeSettingsUpdate({
       providerOrder: ['b', 'a', 'a'],
       diffWrapLines: true,

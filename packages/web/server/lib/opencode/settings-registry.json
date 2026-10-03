@@ -185,6 +185,9 @@
     "sessionRetentionAction": {
       "scope": "instance"
     },
+    "mergedWorktreeCleanupEnabled": {
+      "scope": "instance"
+    },
     "terminalShell": {
       "scope": "instance"
     },
@@ -486,6 +489,9 @@
     "collapsedModelProviders": {
       "scope": "profile"
     },
+    "customProviderIcons": {
+      "scope": "profile"
+    },
     "recentModels": {
       "scope": "profile"
     },
@@ -526,6 +532,14 @@
         "mobile"
       ]
     },
+    "sessionGoalMaxAutoTurns": {
+      "scope": "profile",
+      "surfaces": [
+        "web",
+        "desktop",
+        "mobile"
+      ]
+    },
     "sessionGoalDefaultBudgetEnabled": {
       "scope": "profile"
     },
@@ -533,9 +547,6 @@
       "scope": "profile"
     },
     "sessionGoalObjectiveCharLimit": {
-      "scope": "profile"
-    },
-    "sessionGoalMaxAutoTurns": {
       "scope": "profile"
     },
     "summarizeLastMessage": {

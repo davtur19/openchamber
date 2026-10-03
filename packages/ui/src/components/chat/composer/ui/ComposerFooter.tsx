@@ -19,6 +19,9 @@ import { Icon } from '@/components/icon/Icon';
 import type { GuestAttachItem } from '@/hooks/useGuestSurfaces';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { useConfigStore } from '@/stores/useConfigStore';
+import { isVSCodeRuntime } from '@/lib/desktop';
+import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio-source';
 import { ModelControls } from '../../ModelControls';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
@@ -56,8 +59,7 @@ export interface ComposerFooterProps {
 
     onOpenSettings?: () => void;
     onPickLocalFiles: () => void;
-    onOpenIssuePicker: () => void;
-    onOpenPrPicker: () => void;
+    onOpenGitHubPicker: () => void;
     showLinearPicker?: boolean;
     onOpenLinearPicker?: () => void;
     attachGuests?: readonly GuestAttachItem[];
@@ -71,6 +73,7 @@ export interface ComposerFooterProps {
     onStartDictation: () => void;
     onDictationInsert: (text: string) => void;
     onDictationInsertAndSend: (text: string) => void;
+    onDictationSendStart: () => void;
     onDictationStart: () => void;
     onDictationContentHeightChange: (height: number | null) => void;
     isBtw?: boolean;
@@ -107,8 +110,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         dictationActive,
         onOpenSettings,
         onPickLocalFiles,
-        onOpenIssuePicker,
-        onOpenPrPicker,
+        onOpenGitHubPicker,
         showLinearPicker,
         onOpenLinearPicker,
         attachGuests,
@@ -122,6 +124,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onStartDictation,
         onDictationInsert,
         onDictationInsertAndSend,
+        onDictationSendStart,
         onDictationStart,
         onDictationContentHeightChange,
         isBtw = false,
@@ -130,6 +133,10 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onRunInParallel,
         parallelRun = null,
     } = props;
+
+    const dictationEnabled = useConfigStore((state) => state.dictationEnabled);
+    const [dictationSupported] = React.useState(() => !isVSCodeRuntime() && isDictationCaptureSupported());
+    const showDictation = dictationEnabled && dictationSupported;
 
     return (
         <div
@@ -153,8 +160,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 footerIconButtonClass={footerIconButtonClass}
                                 iconSizeClass={iconSizeClass}
                                 handlePickLocalFiles={onPickLocalFiles}
-                                openIssuePicker={onOpenIssuePicker}
-                                openPrPicker={onOpenPrPicker}
+                                openGitHubPicker={onOpenGitHubPicker}
                                 showLinearPicker={showLinearPicker}
                                 openLinearPicker={onOpenLinearPicker}
                                 onOpenSettings={isBtw ? undefined : onOpenSettings}
@@ -181,7 +187,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
                             <div className="flex items-center gap-x-1 flex-shrink-0">
-                                {!isBtw ? <button
+                                {!isBtw && showDictation ? <button
                                     type="button"
                                     className={footerIconButtonClass}
                                     // Keep the soft keyboard open (same guard as
@@ -227,8 +233,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             footerIconButtonClass={footerIconButtonClass}
                             iconSizeClass={iconSizeClass}
                             handlePickLocalFiles={onPickLocalFiles}
-                            openIssuePicker={onOpenIssuePicker}
-                            openPrPicker={onOpenPrPicker}
+                            openGitHubPicker={onOpenGitHubPicker}
                             showLinearPicker={showLinearPicker}
                             openLinearPicker={onOpenLinearPicker}
                             onOpenSettings={isBtw ? undefined : onOpenSettings}
@@ -271,6 +276,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             sendIconSizeClass={sendIconSizeClass}
                             onInsert={onDictationInsert}
                             onInsertAndSend={onDictationInsertAndSend}
+                            onSendStart={onDictationSendStart}
                             onStart={onDictationStart}
                             onContentHeightChange={onDictationContentHeightChange}
                         /> : null}

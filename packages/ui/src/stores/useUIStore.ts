@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_SESSION_GOAL_MAX_AUTO_TURNS, isSessionGoalMaxAutoTurns } from '@/lib/sessionGoalTurnLimit';
 import { z } from 'zod';
 import { devtools, persist } from 'zustand/middleware';
 import type { SidebarSection } from '@/constants/sidebar';
@@ -6,6 +7,7 @@ import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 import { SEMANTIC_TYPOGRAPHY, getTypographyVariable, type SemanticTypographyKey } from '@/lib/typography';
 import type { ShortcutCombo } from '@/lib/shortcuts';
 import type { DraftStarterRef } from '@/lib/draftStarters';
+import type { CustomProviderIcon } from '@/lib/customProviderIcons';
 import { DEFAULT_MONO_FONT, DEFAULT_UI_FONT, type MonoFontOption, type UiFontOption } from '@/lib/fontOptions';
 import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { LinearIssueListAssignee, LinearIssueListPriority, LinearIssueListStatus, TerminalShell } from '@/lib/api/types';
@@ -41,13 +43,13 @@ export type WeekStartPreference = 'auto' | 'sunday' | 'monday';
 export type DesktopWindowControlsPosition = 'left' | 'right';
 export type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
 export type FileEditorKeymap = 'default' | 'vim';
-export type LargeTextPasteBehavior = 'ask' | 'attach' | 'inline';
+export type LargeTextPasteBehavior = 'ask' | 'attach' | 'inline' | 'inline-double-paste';
 export type SessionGoalChecker = 'classifier' | 'small-model';
 
 export const DEFAULT_LARGE_TEXT_PASTE_BEHAVIOR: LargeTextPasteBehavior = 'ask';
 
 export const normalizeLargeTextPasteBehavior = (value: unknown): LargeTextPasteBehavior => {
-  if (value === 'attach' || value === 'inline' || value === 'ask') {
+  if (value === 'attach' || value === 'inline' || value === 'ask' || value === 'inline-double-paste') {
     return value;
   }
   return DEFAULT_LARGE_TEXT_PASTE_BEHAVIOR;
@@ -957,6 +959,8 @@ interface UIStore {
   autoDeleteAfterDays: number;
   sessionRetentionAction: SessionRetentionAction;
   sessionRetentionOnlyArchived: boolean;
+  /** Archive a worktree's sessions and remove it once its PR is merged. Off by default. */
+  mergedWorktreeCleanupEnabled: boolean;
   autoDeleteLastRunAt: number | null;
   messageLimit: number;
   fontSize: number;
@@ -978,6 +982,7 @@ interface UIStore {
   hiddenModels: Array<{ providerID: string; modelID: string }>;
   providerOrder: string[];
   collapsedModelProviders: string[];
+  customProviderIcons: Record<string, CustomProviderIcon>;
   recentModels: Array<{ providerID: string; modelID: string }>;
   recentAgents: string[];
   recentEfforts: Record<string, string[]>;
@@ -1192,15 +1197,16 @@ interface UIStore {
   setSessionWorkAutoOpen: (value: boolean) => void;
   setSessionGoalEnabled: (value: boolean) => void;
   setSessionGoalChecker: (value: SessionGoalChecker) => void;
+  setSessionGoalMaxAutoTurns: (value: number) => void;
   setSessionGoalDefaultBudgetEnabled: (value: boolean) => void;
   setSessionGoalDefaultBudget: (value: number) => void;
   setSessionGoalObjectiveCharLimit: (value: number) => void;
-  setSessionGoalMaxAutoTurns: (value: number) => void;
   setCollapsibleThinkingBlocks: (value: boolean) => void;
   setChatRenderMode: (value: ChatRenderMode) => void;
   setActivityRenderMode: (value: ActivityRenderMode) => void;
   setShowDeletionDialog: (value: boolean) => void;
   setAutoDeleteEnabled: (value: boolean) => void;
+  setMergedWorktreeCleanupEnabled: (value: boolean) => void;
   setAutoSaveEnabled: (value: boolean) => void;
   setAutoDeleteAfterDays: (days: number) => void;
   setSessionRetentionAction: (value: SessionRetentionAction) => void;
@@ -1230,6 +1236,7 @@ interface UIStore {
     overModelID: string,
   ) => void;
   setProviderOrder: (orderedProviderIDs: string[]) => void;
+  setCustomProviderIcon: (providerID: string, icon: CustomProviderIcon | null) => void;
   toggleHiddenModel: (providerID: string, modelID: string) => void;
   isHiddenModel: (providerID: string, modelID: string) => boolean;
   hideAllModels: (providerID: string, modelIDs: string[]) => void;
@@ -1400,10 +1407,10 @@ export const useUIStore = create<UIStore>()(
         sessionWorkAutoOpen: true,
         sessionGoalEnabled: true,
         sessionGoalChecker: 'small-model',
+        sessionGoalMaxAutoTurns: DEFAULT_SESSION_GOAL_MAX_AUTO_TURNS,
         sessionGoalDefaultBudgetEnabled: false,
         sessionGoalDefaultBudget: 200_000,
         sessionGoalObjectiveCharLimit: 5_000,
-        sessionGoalMaxAutoTurns: 20,
         collapsibleThinkingBlocks: true,
         chatRenderMode: 'live',
         activityRenderMode: 'summary',
@@ -1413,6 +1420,7 @@ export const useUIStore = create<UIStore>()(
         autoDeleteAfterDays: 30,
         sessionRetentionAction: 'archive',
         sessionRetentionOnlyArchived: false,
+        mergedWorktreeCleanupEnabled: false,
         autoDeleteLastRunAt: null,
         messageLimit: 200,
         fontSize: 100,
@@ -1431,6 +1439,7 @@ export const useUIStore = create<UIStore>()(
         hiddenModels: [],
         providerOrder: [],
         collapsedModelProviders: [],
+        customProviderIcons: {},
         recentModels: [],
         recentAgents: [],
         recentEfforts: {},
@@ -2326,6 +2335,11 @@ export const useUIStore = create<UIStore>()(
           set({ sessionGoalChecker: value });
         },
 
+        setSessionGoalMaxAutoTurns: (value) => {
+          if (!isSessionGoalMaxAutoTurns(value)) return;
+          set({ sessionGoalMaxAutoTurns: value });
+        },
+
         setSessionGoalDefaultBudgetEnabled: (value) => {
           set({ sessionGoalDefaultBudgetEnabled: value });
         },
@@ -2336,10 +2350,6 @@ export const useUIStore = create<UIStore>()(
 
         setSessionGoalObjectiveCharLimit: (value) => {
           set({ sessionGoalObjectiveCharLimit: value });
-        },
-
-        setSessionGoalMaxAutoTurns: (value) => {
-          set({ sessionGoalMaxAutoTurns: value });
         },
 
         setCollapsibleThinkingBlocks: (value) => {
@@ -2360,6 +2370,10 @@ export const useUIStore = create<UIStore>()(
 
         setAutoDeleteEnabled: (value) => {
           set({ autoDeleteEnabled: value });
+        },
+
+        setMergedWorktreeCleanupEnabled: (value) => {
+          set({ mergedWorktreeCleanupEnabled: value });
         },
 
         setAutoSaveEnabled: (value) => {
@@ -2646,6 +2660,17 @@ export const useUIStore = create<UIStore>()(
               return state;
             }
             return { providerOrder: next };
+          });
+        },
+
+        setCustomProviderIcon: (providerID, icon) => {
+          const normalizedProviderID = providerID.trim();
+          if (!normalizedProviderID) return;
+          set((state) => {
+            const next = { ...state.customProviderIcons };
+            if (icon) next[normalizedProviderID] = icon;
+            else delete next[normalizedProviderID];
+            return { customProviderIcons: next };
           });
         },
 
@@ -3335,10 +3360,10 @@ export const useUIStore = create<UIStore>()(
           sessionWorkAutoOpen: state.sessionWorkAutoOpen,
           sessionGoalEnabled: state.sessionGoalEnabled,
           sessionGoalChecker: state.sessionGoalChecker,
+          sessionGoalMaxAutoTurns: state.sessionGoalMaxAutoTurns,
           sessionGoalDefaultBudgetEnabled: state.sessionGoalDefaultBudgetEnabled,
           sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
           sessionGoalObjectiveCharLimit: state.sessionGoalObjectiveCharLimit,
-          sessionGoalMaxAutoTurns: state.sessionGoalMaxAutoTurns,
           collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
           chatRenderMode: state.chatRenderMode,
           activityRenderMode: state.activityRenderMode,
@@ -3348,6 +3373,7 @@ export const useUIStore = create<UIStore>()(
           autoDeleteAfterDays: state.autoDeleteAfterDays,
           sessionRetentionAction: state.sessionRetentionAction,
           sessionRetentionOnlyArchived: state.sessionRetentionOnlyArchived,
+          mergedWorktreeCleanupEnabled: state.mergedWorktreeCleanupEnabled,
           autoDeleteLastRunAt: state.autoDeleteLastRunAt,
           messageLimit: state.messageLimit,
           fontSize: state.fontSize,
@@ -3364,6 +3390,7 @@ export const useUIStore = create<UIStore>()(
           hiddenModels: state.hiddenModels,
           providerOrder: state.providerOrder,
           collapsedModelProviders: state.collapsedModelProviders,
+          customProviderIcons: state.customProviderIcons,
           recentModels: state.recentModels,
           recentAgents: state.recentAgents,
           recentEfforts: state.recentEfforts,

@@ -13,10 +13,13 @@ import { CommitComparisonSelector } from '@/components/views/git/CommitCompariso
 import { branchRefLabel } from '@/components/views/git/baseBranch';
 import { isBranchScopeAvailable, isBranchScopeDefinitelyUnavailable, useRangeKeyedCache } from '@/components/views/branchDiffScope';
 import { CommitSection } from '@/components/views/git/CommitSection';
+import { ConflictDialog } from '@/components/views/git/ConflictDialog';
 import { DirtyBranchSwitchDialog } from '@/components/views/git/DirtyBranchSwitchDialog';
-import { pushCommittedChanges } from '@/components/views/git/commitAndPush';
+import { describePulledFiles, pullUpstreamChanges, pushCommittedChanges } from '@/components/views/git/commitAndPush';
+import { InProgressOperationBanner } from '@/components/views/git/InProgressOperationBanner';
 import { SyncActions } from '@/components/views/git/SyncActions';
-import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
+import { hasUncommittedTrackedChanges, isConflictedStatusFile } from '@/components/views/git/changeStatus';
+import { PierreDiffViewer, type ContextExpansionRequest } from '@/components/views/PierreDiffViewer';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useNestedGitDirectory } from '@/hooks/useNestedGitDirectory';
@@ -28,7 +31,8 @@ import { useGitComparison, type GitComparisonFile, type GitComparisonSource } fr
 import { useGitBaseBranchStore } from '@/stores/useGitBaseBranchStore';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { fileDiffFromPatch, isBinaryPatch } from '@/lib/diff/patchFileDiff';
-import type { FileDiffMetadata } from '@pierre/diffs';
+import { mapWithConcurrency } from '@/lib/concurrency';
+import { parseDiffFromFile, type FileDiffMetadata } from '@pierre/diffs';
 import type { GitStatus, GitSubmoduleState } from '@/lib/api/types';
 import { GitPathUnavailableError } from '@/lib/api/git-path-diff';
 import { SubmoduleDiffSummary } from '@/components/views/SubmoduleDiffSummary';
@@ -46,6 +50,7 @@ import {
 import { NestedRepoResolutionStates } from '@/components/views/git/NestedRepoResolutionStates';
 import { NestedRepoPicker } from '@/components/views/git/NestedRepoPicker';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { normalizePath } from '@/lib/pathNormalization';
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 type CommitAction = 'commit' | 'commitAndPush' | null;
@@ -72,9 +77,12 @@ type ComparisonDiff =
   | { status: 'ready'; diff: MobileDiffData }
   | { status: 'error'; message: string };
 const LOADING_COMPARISON_DIFF: ComparisonDiff = { status: 'loading' };
+const FULL_CONTEXT_DIFF_LINES = 1_000_000;
 const LIST_ROUTE: ChangesRoute = { type: 'list' };
 
-const normalizePath = (value?: string | null): string => (value || '').replace(/\\/g, '/').replace(/\/+$/g, '');
+// The server already serializes reverts per repository, so anything beyond a
+// couple of in-flight POSTs only holds browser connections away from reads.
+const REVERT_PATHS_CONCURRENCY = 2;
 
 const isStagedStatusFile = (file: GitStatus['files'][number]): boolean => {
   const indexStatus = file.index?.trim();
@@ -99,10 +107,12 @@ type MobileChangesSurfaceProps = {
   initialDiff?: { path: string; staged: boolean } | null;
   /** The workspace drawer keeps visited panes mounted while hidden. */
   visible?: boolean;
+  /** The drawer closes here so a conflict handed to chat lands on the chat. */
+  onNavigatedToChat?: () => void;
 };
 
 export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = (props) => {
-  const rootDirectory = normalizePath(useEffectiveDirectory() ?? null);
+  const rootDirectory = normalizePath(useEffectiveDirectory() ?? null) ?? '';
   const repository = useNestedGitDirectory(rootDirectory || null, { enabled: props.visible ?? true });
   return <MobileChangesPane {...props} rootDirectory={rootDirectory} repository={repository} />;
 };
@@ -113,7 +123,7 @@ interface MobileChangesPaneProps extends MobileChangesSurfaceProps {
 }
 
 /** Repository-scoped navigation and actions, separate from session directory resolution. */
-export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirectory, repository, onClose, initialDiff, visible = true }) => {
+export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirectory, repository, onClose, initialDiff, visible = true, onNavigatedToChat }) => {
   const { t } = useI18n();
   const { git } = useRuntimeAPIs();
   // When the root is not itself a repository, changes come from the resolved
@@ -185,6 +195,15 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
   const [unavailablePath, setUnavailablePath] = React.useState<{ key: string; reason: 'nested_repository' | 'untracked_directory' } | null>(null);
   const [diffRetryNonce, setDiffRetryNonce] = React.useState(0);
   const [pendingDirtySwitchBranch, setPendingDirtySwitchBranch] = React.useState<string | null>(null);
+  const [conflictDialogOpen, setConflictDialogOpen] = React.useState(false);
+  const [conflictFiles, setConflictFiles] = React.useState<string[]>([]);
+  const [conflictOperation, setConflictOperation] = React.useState<'merge' | 'rebase'>('rebase');
+
+  const openConflictDialog = React.useCallback((files: string[], operation: 'merge' | 'rebase') => {
+    setConflictFiles(files);
+    setConflictOperation(operation);
+    setConflictDialogOpen(true);
+  }, []);
 
   const currentBranch = status?.current ?? null;
   const trackingRemote = status?.tracking?.trim().split('/')[0];
@@ -205,7 +224,7 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
   }, [branchComparison.base, currentBranch, mode, selectedCommitHash, selectedPr]);
   const comparisonRevision = mode === 'branch' ? branchComparison.revision : '';
   const comparison = useGitComparison(currentDirectory || null, comparisonSource, visible && isGitRepo === true, comparisonRevision);
-  const { fetchDiff: loadComparisonDiff } = comparison;
+  const { fetchDiff: loadComparisonDiff, fetchFullFile: loadComparisonFullFile } = comparison;
   const comparisonFiles = React.useMemo(() => comparison.files ? [...comparison.files].sort((a, b) => a.path.localeCompare(b.path)) : null, [comparison.files]);
   const activeComparisonPath = route.type === 'comparison' && route.sourceKey === comparison.key ? route.path : null;
   const [comparisonRetry, setComparisonRetry] = React.useState(0);
@@ -227,6 +246,44 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
     JSON.stringify([comparisonRevision, mode === 'pr' ? comparison.revision : 0, comparisonRetry]),
   );
   const activeComparisonDiff = activeComparisonPath ? comparisonDiffs.get(activeComparisonPath) ?? LOADING_COMPARISON_DIFF : null;
+  // Comparison diffs are patches with 3 lines of context. Expanding collapsed
+  // context switches this file alone to full contents, then the viewer replays
+  // the expansion, as in the desktop Changes view. Both states belong to the
+  // cache entry they were made for, so a new path, range or retry drops them.
+  const [contextExpansion, setContextExpansion] = React.useState<{ source: ComparisonDiff; request: ContextExpansionRequest } | null>(null);
+  const [fullComparisonDiff, setFullComparisonDiff] = React.useState<{ source: ComparisonDiff; diff: MobileDiffData } | null>(null);
+  const pendingContextExpansion = contextExpansion && contextExpansion.source === activeComparisonDiff ? contextExpansion.request : null;
+  const activeFullComparisonDiff = fullComparisonDiff && fullComparisonDiff.source === activeComparisonDiff ? fullComparisonDiff.diff : null;
+  React.useEffect(() => {
+    const source = activeComparisonDiff;
+    if (!pendingContextExpansion || !activeComparisonPath || source?.status !== 'ready' || activeFullComparisonDiff) return;
+    let cancelled = false;
+    const path = activeComparisonPath;
+    // Branch and commit diffs are re-read from git with the whole file as
+    // context; a PR diff comes from GitHub at fixed context, so its full view
+    // is built from both sides of the file as GitHub has them.
+    const loadFullDiff = async (): Promise<MobileDiffData> => {
+      if (mode === 'pr') {
+        const { original, modified } = await loadComparisonFullFile(path);
+        return { original, modified, fileDiff: parseDiffFromFile({ name: path, contents: original }, { name: path, contents: modified }) };
+      }
+      const { diff: patch } = await loadComparisonDiff(path, FULL_CONTEXT_DIFF_LINES);
+      return { original: '', modified: '', fileDiff: fileDiffFromPatch(path, patch) };
+    };
+    void (async () => {
+      try {
+        const diff = await loadFullDiff();
+        if (!cancelled) setFullComparisonDiff({ source, diff });
+      } catch (error) {
+        if (cancelled) return;
+        toast.error(error instanceof Error ? error.message : t('diffView.state.failedToLoadDiff'));
+        setContextExpansion(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeComparisonDiff, activeComparisonPath, activeFullComparisonDiff, loadComparisonDiff, loadComparisonFullFile, mode, pendingContextExpansion, t]);
 
   React.useEffect(() => {
     if (mode === 'branch' && branchUnavailable) changeMode('working');
@@ -436,6 +493,15 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
         if (!remote) throw new Error(t('mobile.changes.noRemote'));
         await git.gitFetch(currentDirectory, { remote: remote.name });
         toast.success(t('gitView.toast.fetchedFromRemote', { name: remote.name }));
+      } else if (action === 'pull') {
+        if (!remote) throw new Error(t('mobile.changes.noRemote'));
+        const result = await pullUpstreamChanges(git, currentDirectory, remote, status?.tracking ?? null);
+        if (result.conflict) {
+          openConflictDialog(result.conflictFiles ?? [], 'rebase');
+        } else {
+          const pulled = describePulledFiles(result.files.length, remote.name);
+          toast.success(t(pulled.key, pulled.params));
+        }
       } else if (action === 'sync') {
         if (!remote) throw new Error(t('mobile.changes.noRemote'));
         let pulledFileCount = 0;
@@ -445,16 +511,18 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
           remote,
           dirtyWorktreeError: t('gitView.toast.commitOrStashBeforeSync'),
           onPulled: (pullResult) => { pulledFileCount = pullResult.files.length; },
+          onConflict: (conflictFiles) => openConflictDialog(conflictFiles, 'rebase'),
         });
-        if (pulledFileCount > 0) {
-          toast.success(pulledFileCount === 1
-            ? t('gitView.toast.pulledFilesSingle', { count: pulledFileCount, name: remote.name })
-            : t('gitView.toast.pulledFilesPlural', { count: pulledFileCount, name: remote.name }));
-        }
-        if (result.pushed.length > 0) {
-          toast.success(t('gitView.toast.pushedToUpstream', { name: result.pushed[0].remote }));
-        } else if (pulledFileCount === 0) {
-          toast.success(t('gitView.toast.alreadyUpToDate'));
+        if (result) {
+          if (pulledFileCount > 0) {
+            const pulled = describePulledFiles(pulledFileCount, remote.name);
+            toast.success(t(pulled.key, pulled.params));
+          }
+          if (result.pushed.length > 0) {
+            toast.success(t('gitView.toast.pushedToUpstream', { name: result.pushed[0].remote }));
+          } else if (pulledFileCount === 0) {
+            toast.success(t('gitView.toast.alreadyUpToDate'));
+          }
         }
       }
       await refreshStatusAndBranches(false);
@@ -512,7 +580,8 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
     setIsRevertingAll(true);
     setRevertingPaths(new Set(uniquePaths));
     try {
-      await Promise.all(uniquePaths.map((filePath) => git.revertGitFile(currentDirectory, filePath)));
+      await mapWithConcurrency(uniquePaths, REVERT_PATHS_CONCURRENCY, (filePath) =>
+        git.revertGitFile(currentDirectory, filePath));
       await refreshStatusAndBranches(false);
       toast.success(uniquePaths.length === 1
         ? t('gitView.toast.revertedFilesSingle', { count: uniquePaths.length })
@@ -583,6 +652,7 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
           directory: currentDirectory,
           remote,
           dirtyWorktreeError: t('gitView.toast.commitOrStashBeforeSync'),
+          onConflict: (conflictFiles) => openConflictDialog(conflictFiles, 'rebase'),
           onPushed: (result) => {
             toast.success(t('gitView.toast.pushedToUpstream', { name: result.pushed[0].remote }));
           },
@@ -600,6 +670,59 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
       if (options.pushAfter) setSyncAction(null);
     }
   };
+
+  const conflictCount = React.useMemo(
+    () => (status?.files ?? []).filter(isConflictedStatusFile).length,
+    [status?.files],
+  );
+  const mergeInProgress = Boolean(status?.mergeInProgress?.head);
+
+  const handleContinueOperation = React.useCallback(async () => {
+    if (!currentDirectory) return;
+    try {
+      if (mergeInProgress) {
+        const result = await git.continueMerge(currentDirectory);
+        if (result.conflict) {
+          openConflictDialog(result.conflictFiles ?? [], 'merge');
+          toast.error(t('gitView.toast.mergeConflictsDetected'));
+        } else {
+          toast.success(t('gitView.toast.mergeCompleted'));
+        }
+      } else {
+        const result = await git.continueRebase(currentDirectory);
+        if (result.conflict) {
+          openConflictDialog(result.conflictFiles ?? [], 'rebase');
+          toast.error(t('gitView.toast.rebaseConflictsDetected'));
+        } else {
+          toast.success(t('gitView.toast.rebaseStepCompleted'));
+        }
+      }
+      await refreshStatusAndBranches(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('gitView.toast.continueOperationFailed'));
+    }
+  }, [currentDirectory, git, mergeInProgress, openConflictDialog, refreshStatusAndBranches, t]);
+
+  const abortOperation = React.useCallback(async (operation: 'merge' | 'rebase') => {
+    if (!currentDirectory) return;
+    try {
+      if (operation === 'merge') {
+        await git.abortMerge(currentDirectory);
+        toast.success(t('gitView.toast.mergeAborted'));
+      } else {
+        await git.abortRebase(currentDirectory);
+        toast.success(t('gitView.toast.rebaseAborted'));
+      }
+      await refreshStatusAndBranches(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('gitView.toast.abortOperationFailed'));
+    }
+  }, [currentDirectory, git, refreshStatusAndBranches, t]);
+
+  const handleResolveWithAIFromBanner = React.useCallback(() => {
+    const filesWithConflicts = (status?.files ?? []).filter(isConflictedStatusFile).map((file) => file.path);
+    openConflictDialog(filesWithConflicts, mergeInProgress ? 'merge' : 'rebase');
+  }, [mergeInProgress, openConflictDialog, status?.files]);
 
   const changeGroups = React.useMemo<ChangesGroupConfig[]>(() => {
     const groups: ChangesGroupConfig[] = [];
@@ -724,7 +847,7 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
       <MobileDiffDetail
         path={activeComparisonPath}
         subtitle={[modeLabel, sourceLabel].filter(Boolean).join(' · ')}
-        diff={activeComparisonDiff.status === 'ready' ? activeComparisonDiff.diff : null}
+        diff={activeFullComparisonDiff ?? (activeComparisonDiff.status === 'ready' ? activeComparisonDiff.diff : null)}
         fileExists={!comparison.files || comparison.files.some((file) => file.path === activeComparisonPath)}
         error={comparison.error ?? (activeComparisonDiff.status === 'error' ? activeComparisonDiff.message : null)}
         onBack={() => setRoute(LIST_ROUTE)}
@@ -732,6 +855,11 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
           if (comparison.error) void comparison.refresh();
           setComparisonRetry((value) => value + 1);
         }}
+        onExpandContextRequest={activeComparisonDiff.status === 'ready'
+          ? (request) => setContextExpansion({ source: activeComparisonDiff, request })
+          : undefined}
+        pendingContextExpansion={pendingContextExpansion}
+        contextLoading={pendingContextExpansion !== null && !activeFullComparisonDiff}
       />
     );
   }
@@ -843,14 +971,27 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
             syncAction={syncAction}
             remotes={effectiveRemotes}
             onFetch={(remote) => void handleSyncAction('fetch', remote)}
+            onPull={(remote) => void handleSyncAction('pull', remote)}
             onSync={(remote) => void handleSyncAction('sync', remote)}
             disabled={commitAction !== null || isLoadingStatus}
             aheadCount={status?.ahead ?? 0}
             behindCount={status?.behind ?? 0}
             trackingRemoteName={status?.tracking?.split('/')[0]}
-            hasUncommittedChanges={changeEntries.length > 0}
+            trackingBranch={status?.tracking}
+            hasUncommittedChanges={hasUncommittedTrackedChanges(changeEntries)}
           />
         </div>
+      )}
+      {mode === 'working' && (
+        <InProgressOperationBanner
+          mergeInProgress={status?.mergeInProgress}
+          rebaseInProgress={status?.rebaseInProgress}
+          onContinue={handleContinueOperation}
+          onAbort={() => abortOperation(mergeInProgress ? 'merge' : 'rebase')}
+          onResolveWithAI={handleResolveWithAIFromBanner}
+          conflictCount={conflictCount}
+          isLoading={syncAction !== null || commitAction !== null}
+        />
       )}
       {mode !== 'working' ? (
         <div className="min-h-0 flex-1">{renderComparison()}</div>
@@ -889,6 +1030,17 @@ export const MobileChangesPane: React.FC<MobileChangesPaneProps> = ({ rootDirect
         <div className="min-h-0 flex-1">
           <MobileChangesState icon message={t('gitView.empty.cleanTitle')} description={t('mobile.changes.cleanDescription')} />
         </div>
+      )}
+      {currentDirectory && (
+        <ConflictDialog
+          open={conflictDialogOpen}
+          onOpenChange={setConflictDialogOpen}
+          conflictFiles={conflictFiles}
+          directory={currentDirectory}
+          operation={conflictOperation}
+          onAbort={() => void abortOperation(conflictOperation)}
+          onNavigatedToChat={onNavigatedToChat}
+        />
       )}
       <DirtyBranchSwitchDialog
         open={pendingDirtySwitchBranch !== null}
@@ -975,7 +1127,10 @@ const MobileDiffDetail: React.FC<{
   error: string | null;
   onBack: () => void;
   onRetry: () => void;
-}> = ({ path, subtitle, diff, staged = false, fileExists, unavailableReason = null, error, onBack, onRetry }) => {
+  onExpandContextRequest?: (request: ContextExpansionRequest) => void;
+  pendingContextExpansion?: ContextExpansionRequest | null;
+  contextLoading?: boolean;
+}> = ({ path, subtitle, diff, staged = false, fileExists, unavailableReason = null, error, onBack, onRetry, onExpandContextRequest, pendingContextExpansion, contextLoading }) => {
   const { t } = useI18n();
   const language = React.useMemo(() => getLanguageFromExtension(path) || 'text', [path]);
 
@@ -1033,6 +1188,9 @@ const MobileDiffDetail: React.FC<{
               renderSideBySide={false}
               wrapLines={true}
               layout="inline"
+              onExpandContextRequest={onExpandContextRequest}
+              pendingContextExpansion={pendingContextExpansion}
+              contextLoading={contextLoading}
             />
           </ScrollShadow>
         )}

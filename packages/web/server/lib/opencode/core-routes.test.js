@@ -243,6 +243,45 @@ describe('core-routes', () => {
     }
   });
 
+  it('lets only GET html-preview file reads past API auth; the grant in the path is checked by the fs route', async () => {
+    const app = express();
+    const requireAuth = vi.fn((_req, res) => res.status(401).json({ error: 'Unauthorized' }));
+    registerAuthAndAccessRoutes(app, {
+      express,
+      tunnelAuthController: {
+        classifyRequestScope: () => 'local',
+        requireTunnelSession: vi.fn(),
+        getTunnelSessionFromRequest: vi.fn(),
+        clearTunnelSessionCookie: vi.fn(),
+        exchangeBootstrapToken: vi.fn(),
+      },
+      uiAuthController: {
+        requireAuth,
+        handleSessionStatus: vi.fn(),
+        handleSessionCreate: vi.fn(),
+        handlePasskeyStatus: vi.fn(),
+        handlePasskeyAuthenticationOptions: vi.fn(),
+        handlePasskeyAuthenticationVerify: vi.fn(),
+        handlePasskeyRegistrationOptions: vi.fn(),
+        handlePasskeyRegistrationVerify: vi.fn(),
+        handlePasskeyList: vi.fn(),
+        handlePasskeyRevoke: vi.fn(),
+        handleResetAuth: vi.fn(),
+      },
+      readSettingsFromDiskMigrated: vi.fn(async () => ({})),
+      normalizeTunnelSessionTtlMs: vi.fn(),
+    });
+    app.get(/^\/api\/fs\/preview\/.+$/, (_req, res) => res.json({ reached: true }));
+    app.post('/api/fs/preview', (_req, res) => res.json({ reached: true }));
+    app.get('/api/fs/read', (_req, res) => res.json({ reached: true }));
+
+    await request(app).get('/api/fs/preview/grant-1/repo/index.html').expect(200, { reached: true });
+    await request(app).post('/api/fs/preview').send({ path: '/repo/index.html' }).expect(401);
+    await request(app).get('/api/fs/preview/grant-1').expect(401);
+    await request(app).get('/api/fs/read?path=/repo/index.html').expect(401);
+    expect(requireAuth).toHaveBeenCalledTimes(3);
+  });
+
   it('should probe loopback preview URLs and return ok: true for status codes 200-599', async () => {
     const app = express();
     const originalFetch = globalThis.fetch;
@@ -861,6 +900,8 @@ describe('client auth routes', () => {
     })).toBe('unknown-public');
   });
 
+  const signedIn = { resolveAuthContext: async () => ({ type: 'session' }) };
+
   it('reports null port and tunnel URL on /api/system/info when no getters are wired', async () => {
     const app = express();
     registerServerStatusRoutes(app, {
@@ -871,6 +912,7 @@ describe('client auth routes', () => {
       openchamberVersion: '1.0.0',
       runtimeName: 'test',
       express,
+      uiAuthController: signedIn,
     });
 
     const response = await request(app).get('/api/system/info');
@@ -895,11 +937,35 @@ describe('client auth routes', () => {
       express,
       getServerPort: () => 9988,
       getTunnelUrl: () => 'https://worktree-a.example.trycloudflare.com',
+      uiAuthController: signedIn,
     });
 
     const response = await request(app).get('/api/system/info');
     expect(response.status).toBe(200);
     expect(response.body.port).toBe(9988);
     expect(response.body.tunnelUrl).toBe('https://worktree-a.example.trycloudflare.com');
+  });
+
+  it('keeps the pid but not where the server is reachable on /api/system/info before login', async () => {
+    const app = express();
+    registerServerStatusRoutes(app, {
+      process,
+      serverStartedAt: '2026-01-01T00:00:00.000Z',
+      gracefulShutdown: vi.fn(async () => {}),
+      getHealthSnapshot: () => ({ status: 'ok' }),
+      openchamberVersion: '1.0.0',
+      runtimeName: 'test',
+      express,
+      getServerPort: () => 9988,
+      getTunnelUrl: () => 'https://worktree-a.example.trycloudflare.com',
+      uiAuthController: { resolveAuthContext: async () => null },
+    });
+
+    const response = await request(app).get('/api/system/info');
+    expect(response.status).toBe(200);
+    // The CLI identifies its own server by pid before it has any credential.
+    expect(response.body.pid).toBe(process.pid);
+    expect(response.body).not.toHaveProperty('port');
+    expect(response.body).not.toHaveProperty('tunnelUrl');
   });
 });

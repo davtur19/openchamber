@@ -3,6 +3,7 @@ import { runtimeFetch } from './runtime-fetch';
 import { isRelayModeActive } from './relay/runtime-tunnel';
 import { subscribeRuntimeEndpointChanged } from './runtime-switch';
 import { isVSCodeRuntime } from './desktop';
+import { canDriveBrowserPage } from './browser/hostCapability';
 import { messageQueueUpdatedEventSchema, type MessageQueueUpdatedEvent } from '@/stores/messageQueueStore';
 import { z } from 'zod';
 
@@ -133,6 +134,7 @@ const notificationPropertiesSchema = z.object({
   sessionId: z.string().optional(),
   directory: z.string().optional(),
   requireHidden: z.boolean().optional(),
+  showWhenFocused: z.boolean().optional(),
 });
 
 type OpenChamberEvent =
@@ -474,7 +476,7 @@ const connect = () => {
   // Chromium host can drive a page; a browser tab can display one but not be
   // driven, and the agent tool needs to know which it is talking to without a
   // setting anyone has to remember to change.
-  const canControlBrowser = Boolean(window.__OPENCHAMBER_ELECTRON__);
+  const canControlBrowser = canDriveBrowserPage();
   if (isRelayModeActive()) {
     connectRelay(canControlBrowser);
     return;

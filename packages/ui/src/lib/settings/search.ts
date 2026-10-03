@@ -256,6 +256,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'chat.session-goal-max-turns',
+    page: 'chat',
+    titleKey: 'settings.openchamber.visual.goal.maxTurnsLabel',
+    keywords: ['goal', 'turns', 'limit', 'continuations', 'safety'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.session-goal-budget',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.goal.budgetLabel',
@@ -267,13 +274,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.openchamber.visual.goal.charLimitLabel',
     keywords: ['goal', 'objective', 'character', 'limit', 'truncate'],
-    isAvailable: (ctx) => !ctx.isVSCode,
-  },
-  {
-    id: 'chat.session-goal-max-turns',
-    page: 'chat',
-    titleKey: 'settings.openchamber.visual.goal.maxTurnsLabel',
-    keywords: ['goal', 'auto continue', 'turns', 'limit', 'unlimited'],
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
@@ -447,7 +447,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.largeTextPaste',
     descriptionKey: 'settings.openchamber.visual.field.largeTextPasteHint',
-    keywords: ['paste', 'clipboard', 'attachment', 'large', 'text', 'file'],
+    keywords: ['paste', 'clipboard', 'attachment', 'large', 'text', 'file', 'double paste', 'ctrl v', 'cmd v'],
   },
   {
     id: 'chat.enter-to-send',
@@ -539,6 +539,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.openchamber.sessionRetention.field.enableAutoCleanup',
     descriptionKey: 'settings.openchamber.sessionRetention.tooltip',
     keywords: ['retention', 'archive', 'delete'],
+  },
+  {
+    id: 'sessions.merged-worktree-cleanup',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.mergedWorktreeCleanup.field.enable',
+    descriptionKey: 'settings.openchamber.mergedWorktreeCleanup.field.enableDescription',
+    keywords: ['pr', 'pull request', 'merged', 'worktree', 'branch', 'archive', 'cleanup', 'remove'],
   },
   {
     id: 'sessions.retention-only-archived',
@@ -1103,7 +1110,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'skills.basic-information',
     page: 'skills.installed',
     titleKey: 'settings.skills.page.section.basicInformation',
-    keywords: ['name', 'location', 'description'],
+    keywords: ['name', 'location', 'description', 'manual', 'invocation', 'autoinvoke'],
   },
   {
     id: 'skills.instructions',

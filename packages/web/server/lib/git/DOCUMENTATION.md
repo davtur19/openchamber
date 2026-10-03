@@ -58,9 +58,66 @@ The following functions are exported and used by the web server:
 - `subscribeWorktreeTopologyChanges(listener)`: Listener receives `{ directories, at }`, where `directories` are every directory of that repository the server has observed, so clients can map them onto registered projects. Returns an unsubscribe function.
 - `validateWorktreeCreate(directory, input)`: Validate worktree creation parameters (mode, branchName, startRef, upstream config).
 - `createWorktree(directory, input)`: Create a new worktree (supports 'new' and 'existing' modes, upstream setup). When the current tracked branch has no unpublished commits, the UI supplies its remote-tracking ref and this operation fetches that branch once before creating the worktree. A failed fetch falls back to the local branch and reports `sourceFetchFailed`; other remote start refs still require an existing local ref when their fetch fails. After populating the worktree, the repository's `post-checkout` hook runs once with git's standard arguments (null ref as previous HEAD, the checked-out HEAD, and flag `1`) from the worktree directory, mirroring `git worktree add` without `--no-checkout`; a missing or non-executable hook is skipped and a failing hook is logged as a warning, never failing worktree creation or the session bootstrap.
-- `removeWorktree(directory, input)`: Remove a worktree (optionally delete local branch). `--force` discards uncommitted work, so callers that must keep it snapshot first. A directory that is not a registered worktree is deleted only when it sits inside the managed worktree root; the VS Code runtime (`packages/vscode/src/gitService.ts`) applies the same guard. A registered linked worktree is released through the caller-injected `input.disposeInstance` hook after the match is confirmed and before `git worktree remove`, while the directory path still resolves; disposal is best-effort, so a failing hook is logged as a warning and never fails the removal. `DELETE /api/git/worktrees` builds that hook from the OpenCode URL/auth helpers injected into `registerGitRoutes`. The primary workspace and the orphan fallback never dispose, because neither is a registered linked worktree.
+- `removeWorktree(directory, input)`: Remove a worktree (optionally delete local branch). `--force` discards uncommitted work, so callers that must keep it snapshot first. A directory that is not a registered worktree is deleted only when it sits inside the data-dir worktree root (`<opencode data>/worktree/<projectID>`), never inside a configured `worktree.directory`, which can be shared with other projects (`".."`); inside a configured folder only a registered worktree that git failed to delete is removed; the VS Code runtime (`packages/vscode/src/gitService.ts`) applies the same guard. A registered linked worktree is released through the caller-injected `input.disposeInstance` hook after the match is confirmed and before `git worktree remove`, while the directory path still resolves; disposal is best-effort, so a failing hook is logged as a warning and never fails the removal. `DELETE /api/git/worktrees` builds that hook from the OpenCode URL/auth helpers injected into `registerGitRoutes`. The primary workspace and the orphan fallback never dispose, because neither is a registered linked worktree.
 - `snapshotWorktree(directory, { ref })` (`POST /api/git/worktrees/snapshot`): Record the worktree's complete state (HEAD plus staged, unstaged and untracked-but-not-ignored files) as a commit whose parent is HEAD, stored at `ref`. Only `refs/openchamber/runs/<group>/<session>` refs are accepted, so snapshots never appear as branches or tags. A throwaway index (`GIT_INDEX_FILE`) keeps the real index, HEAD, branch and files untouched; the commit uses a fixed OpenChamber identity. Returns `{ ref, commit, head }`. Used by multi-run Keep and code fusion (`packages/ui/src/lib/multirun/DOCUMENTATION.md`); VS Code implements it in the bridge git runtime.
 - `isLinkedWorktree(directory)`: Check if directory is a linked worktree (not primary).
+
+### Worktree location
+- New worktrees go under OpenCode's `worktree.directory` when it is set: relative paths resolve against the project's canonical checkout, absolute paths are used as-is, and a leading `~` means the user's home directory. OpenCode appends the worktree name to that folder, so only the name is added.
+- The setting is read from the merged OpenCode configuration on the canonical checkout (`packages/web/server/lib/opencode/worktree-directory.js`, shared with the VS Code extension host through `packages/vscode/src/worktree-directory.ts`) so a linked worktree sees the project's saved value.
+- When the setting is absent, or names no usable directory, worktrees keep landing in OpenChamber's data-dir folder keyed by project ID. Changing the setting only affects worktrees created afterwards; nothing is moved.
+- `removeWorktree` deletes an unregistered leftover only under the data-dir root, so worktrees created before the setting was set stay removable while a shared configured folder such as `".."` can never make a sibling project eligible for deletion; a config read failure there falls back to the data-dir root instead of blocking the removal. Creation still fails loudly on an unreadable config so a worktree is never created in an unchosen folder.
+- Both the web and VS Code readers merge a secondary user config file (`opencode.jsonc` beside `opencode.json`) as an override layer, as OpenCode does, so `worktree.directory` set there applies in every runtime.
+
+### Worktree removal with .git directory symlinks
+
+Server removal supports the `.git` directory symlinks used by git-annex. Only a
+registered, non-primary worktree qualifies. The resolved target must be a direct
+child of this repository's common Git directory's `worktrees` directory. Its
+`commondir` must resolve to that common directory, and its `gitdir` backlink must
+name this worktree's `.git` entry, not another entry resolving to the same target.
+
+After instance disposal and immediately before native removal, the server saves
+the exact link target and writes a complete temporary `gitdir: <metadata>` file.
+It atomically moves `.git` to a unique recovery name, then verifies the claimed
+entry's identity and target bytes and rechecks the original directories. Only
+then does it install the gitdir file by exclusive hardlink creation. A newer
+`.git` entry cannot be overwritten. This is not one atomic swap: `.git` is briefly
+absent between claiming and installation. The target directory is not written
+into. Git performs removal through the existing busy-retry path. Validation
+failures never trigger recursive deletion, and branch deletion runs only after
+successful removal.
+
+If preparation fails after claiming `.git`, cleanup restores the captured entry
+with an exclusive operation while the original directories survive. An unexpected
+concurrent file or symlink is preserved rather than replaced with the older link.
+Unsupported entry kinds, a newer `.git` entry and failed restoration leave the
+claim at its recovery name, which the server logs. Preparation handles this
+cleanup itself because it has not yet returned the native-removal rollback hook.
+
+If removal fails, rollback checks the worktree and metadata directory identities
+and the temporary file's identity and contents. It then moves `.git` to a unique
+recovery name and inspects the claimed entry again. If `.git` disappeared before
+that move, rollback leaves it missing. The original symlink is created directly
+with an exclusive operation, so a newer `.git` entry cannot be overwritten.
+A concurrently changed regular file is put back by exclusive hardlink creation.
+A claimed symlink is recreated from its saved target. POSIX preserves the exact
+target bytes; Node normalizes Windows separators and absolute-path prefixes.
+The symlink's inode, ownership and timestamps are not preserved. The claim is
+removed only after rechecking its identity and target bytes. Node detects the
+Windows link type from the target, defaulting to a file link if that probe fails.
+Unsupported entry kinds and unsafe or failed restorations keep the claim under
+its recovery name, and the server logs that path. If original-symlink creation
+fails, rollback puts back the gitdir file when safe and keeps the native removal
+error as the reported failure. Ordinary successful rollback leaves no recovery
+entry behind.
+
+Preparation and rollback recheck directory identities after claiming `.git` and
+never create worktree or metadata directories. These safeguards cover changes through
+the `.git` path; they are not a filesystem transaction. Writes through file
+descriptors opened before the claim, changes to private recovery entries after
+the final ownership check, and metadata deletion after the final directory check
+are outside this guarantee.
 
 ### Worktree topology change tracking
 There is no filesystem watcher and no polling. The server notices worktree changes in two ways, and both scale with what users are doing rather than with the number of registered projects:
@@ -124,11 +181,11 @@ mount these Git panels and keeps its separate extension-host Git implementation.
 The following functions are internal helpers used by exported functions:
 - `buildSshCommand(sshKeyPath)`: Build SSH command string for git config.
 - `buildGitEnv()`: Build Git environment with SSH_AUTH_SOCK resolution and `GIT_TERMINAL_PROMPT=0` (unless the server was started with it set): the server has no terminal a user could answer, so a Git command that would ask for a username or password fails instead of waiting forever on a console nobody sees. Credential helpers, including GUI ones, still run before Git would prompt. Inside a Linux AppImage it also drops what the AppImage launcher added to `PATH`, `LD_LIBRARY_PATH`, `GSETTINGS_SCHEMA_DIR` and `XDG_DATA_DIRS` (`stripAppImageLauncherEnv`, #4177), so hooks run with the user's values.
-- `createGit(directory)`: Create simple-git instance with environment.
+- `createGit(directory)`: Create simple-git instance with the `buildGitEnv()` environment. simple-git ignores an `env` constructor option, so the env goes through `.env()`. simple-git then rejects any command whose env holds a variable that runs a program (`EDITOR`, `PAGER`, `GIT_SSH_COMMAND`, `GIT_ASKPASS`, `SSH_ASKPASS`, `PREFIX`, `GIT_CONFIG_*`, ...) unless the matching `allowUnsafe*` category is on, and those categories also guard `-c` and other arguments. `toSimpleGitEnv` keeps both: variables passed through unchanged from the server's environment sit on the env object's prototype, which simple-git's check (a spread of own keys) skips and `child_process.spawn` (a `for...in`, covered by Node's own tests) still passes to git; anything OpenChamber sets or changes is an own key and is checked. Do not enable env-related `allowUnsafe*` categories to make a variable work, and do not drop such variables: users rely on them for custom SSH keys and GUI credential prompts. `service.test.js` ("git environment through simple-git") fails if either simple-git internal changes.
 - `normalizeDirectoryPath(value)`: Normalize directory paths (supports ~ expansion).
 - `cleanBranchName(branch)`: Remove refs/heads/ or refs/ prefixes.
 - `parseWorktreePorcelain(raw)`: Parse `git worktree list --porcelain` output.
-- `resolveWorktreeProjectContext(directory)`: Resolve project context (projectID, primaryWorktree, worktreeRoot).
+- `resolveWorktreeProjectContext(directory)`: Resolve project context (projectID, primaryWorktree, worktreeRoot, legacyWorktreeRoot); `worktreeRoot` honors OpenCode's `worktree.directory` and falls back to the data-dir folder keyed by project ID.
 - `resolveCandidateDirectory(...)`: Generate unique worktree directory candidates.
 - `resolveBranchForExistingMode(...)`: Resolve branch for existing-mode worktree creation.
 - `applyUpstreamConfiguration(...)`: Set upstream tracking for new branches.
@@ -232,7 +289,11 @@ The following functions are internal helpers used by exported functions:
 ### Cross-Platform Considerations
 - Use `normalizeDirectoryPath` for all directory inputs to handle `~` and path separators.
 - Use `canonicalPath` for path comparisons to handle case-insensitive filesystems (Windows).
-- Windows Git commands use MSYS/MinGW paths; avoid direct Windows paths in git commands.
+- MSYS2 Git can return `/c/repos/project` on Windows. Pass Git filesystem-path output through `normalizeGitOutputPath` before resolving it or using it with Node filesystem and process APIs. It converts drive mounts to `C:/repos/project` on Windows and preserves other paths, including POSIX paths on Linux and macOS.
+- Apply this conversion to repository roots, Git metadata paths, and worktree list paths. Repository-relative filenames, diff content, and user-supplied paths keep their existing handling. Custom MSYS mount points are outside this conversion.
+- On Windows, `buildGitEnv` appends `noglob` to the child process's `MSYS` options so MSYS2 passes revision arguments such as `HEAD^{commit}` and `branch@{upstream}` literally. Other options and the parent environment remain unchanged. Both simple-git and direct Git commands use this environment.
+- Before passing an explicit environment to simple-git, `createGit` removes the inherited editor, pager, askpass, SSH-command, executable/template/proxy/diff and Git-config overrides rejected by simple-git's environment scan. Matching is case-insensitive. This prevents common shell and editor environments from rejecting every repository operation without disabling argument security checks. The parent and direct Git command environments remain unchanged.
+- Simple-git operations therefore do not use `GIT_SSH_COMMAND`, `GIT_SSH`, or askpass environment overrides. Configure SSH through the repository identity or standard SSH configuration and agent instead; `SSH_AUTH_SOCK` remains available. Git config environment overrides are also omitted, while normal config files retain their existing behavior.
 
 ### Error Handling
 - All exported functions should throw errors with descriptive messages.

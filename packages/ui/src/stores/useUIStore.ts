@@ -950,6 +950,8 @@ interface UIStore {
   /** Max auto-continuation turns before a goal settles as blocked. 0 = unlimited. */
   sessionGoalMaxAutoTurns: number;
   collapsibleThinkingBlocks: boolean;
+  /** A collapsible reasoning block opens while its model thinks. Off: it stays folded to its header. */
+  expandReasoningWhileStreaming: boolean;
   chatRenderMode: ChatRenderMode;
   activityRenderMode: ActivityRenderMode;
   showDeletionDialog: boolean;
@@ -1087,6 +1089,8 @@ interface UIStore {
   enterToSendConfigured: boolean;
   wideChatLayoutEnabled: boolean;
   codeBlockLineWrap: boolean;
+  tableCellWrap: boolean;
+  copyMessagesAsPlainText: boolean;
   showToolFileIcons: boolean;
   showTurnChangedFiles: boolean;
   showExpandedBashTools: boolean;
@@ -1202,6 +1206,7 @@ interface UIStore {
   setSessionGoalDefaultBudget: (value: number) => void;
   setSessionGoalObjectiveCharLimit: (value: number) => void;
   setCollapsibleThinkingBlocks: (value: boolean) => void;
+  setExpandReasoningWhileStreaming: (value: boolean) => void;
   setChatRenderMode: (value: ChatRenderMode) => void;
   setActivityRenderMode: (value: ActivityRenderMode) => void;
   setShowDeletionDialog: (value: boolean) => void;
@@ -1308,6 +1313,8 @@ interface UIStore {
   setEnterToSendConfigured: (value: boolean) => void;
   setWideChatLayoutEnabled: (value: boolean) => void;
   setCodeBlockLineWrap: (value: boolean) => void;
+  setTableCellWrap: (value: boolean) => void;
+  setCopyMessagesAsPlainText: (value: boolean) => void;
   setShowToolFileIcons: (value: boolean) => void;
   setShowTurnChangedFiles: (value: boolean) => void;
   setShowExpandedBashTools: (value: boolean) => void;
@@ -1412,6 +1419,7 @@ export const useUIStore = create<UIStore>()(
         sessionGoalDefaultBudget: 200_000,
         sessionGoalObjectiveCharLimit: 5_000,
         collapsibleThinkingBlocks: true,
+        expandReasoningWhileStreaming: false,
         chatRenderMode: 'live',
         activityRenderMode: 'summary',
         showDeletionDialog: true,
@@ -1508,6 +1516,8 @@ export const useUIStore = create<UIStore>()(
         enterToSendConfigured: false,
         wideChatLayoutEnabled: false,
         codeBlockLineWrap: true,
+        tableCellWrap: false,
+        copyMessagesAsPlainText: true,
         showToolFileIcons: true,
         showTurnChangedFiles: false,
         showExpandedBashTools: false,
@@ -2356,6 +2366,10 @@ export const useUIStore = create<UIStore>()(
           set({ collapsibleThinkingBlocks: value });
         },
 
+        setExpandReasoningWhileStreaming: (value) => {
+          set({ expandReasoningWhileStreaming: value });
+        },
+
         setChatRenderMode: (value) => {
           set({ chatRenderMode: value });
         },
@@ -2986,6 +3000,12 @@ export const useUIStore = create<UIStore>()(
         setCodeBlockLineWrap: (value) => {
           set({ codeBlockLineWrap: value });
         },
+        setTableCellWrap: (value) => {
+          set({ tableCellWrap: value });
+        },
+        setCopyMessagesAsPlainText: (value) => {
+          set({ copyMessagesAsPlainText: value });
+        },
         setShowToolFileIcons: (value) => {
           set({ showToolFileIcons: value });
         },
@@ -3365,6 +3385,7 @@ export const useUIStore = create<UIStore>()(
           sessionGoalDefaultBudget: state.sessionGoalDefaultBudget,
           sessionGoalObjectiveCharLimit: state.sessionGoalObjectiveCharLimit,
           collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
+          expandReasoningWhileStreaming: state.expandReasoningWhileStreaming,
           chatRenderMode: state.chatRenderMode,
           activityRenderMode: state.activityRenderMode,
           showDeletionDialog: state.showDeletionDialog,
@@ -3440,6 +3461,8 @@ export const useUIStore = create<UIStore>()(
           enterToSendConfigured: state.enterToSendConfigured,
           wideChatLayoutEnabled: state.wideChatLayoutEnabled,
           codeBlockLineWrap: state.codeBlockLineWrap,
+          tableCellWrap: state.tableCellWrap,
+          copyMessagesAsPlainText: state.copyMessagesAsPlainText,
           showToolFileIcons: state.showToolFileIcons,
           showTurnChangedFiles: state.showTurnChangedFiles,
           showExpandedBashTools: state.showExpandedBashTools,

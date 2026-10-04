@@ -293,6 +293,9 @@
     "collapsibleThinkingBlocks": {
       "scope": "profile"
     },
+    "expandReasoningWhileStreaming": {
+      "scope": "profile"
+    },
     "showTextJustificationActivity": {
       "scope": "profile"
     },
@@ -330,6 +333,12 @@
       "scope": "profile"
     },
     "codeBlockLineWrap": {
+      "scope": "profile"
+    },
+    "tableCellWrap": {
+      "scope": "profile"
+    },
+    "copyMessagesAsPlainText": {
       "scope": "profile"
     },
     "showTurnChangedFiles": {

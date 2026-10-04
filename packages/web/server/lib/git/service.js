@@ -1431,10 +1431,44 @@ export async function resolveRepositoryGitPaths(directory) {
   };
 }
 
+/**
+ * Each listed remote's fetch and push URL from `git remote -v` output, as
+ * `git remote get-url [--push]` reports them: the first URL of several, and a
+ * remote with no URL read as a URL equal to its name, as Git does. Lines may
+ * end in CRLF (Git for Windows); a kept `\r` would match no line and read
+ * every remote as URL-less.
+ */
+export function parseRemoteListing(names, listing) {
+  const urls = new Map();
+  for (const line of String(listing || '').split(/\r?\n/)) {
+    const match = line.match(/^([^\t]+)\t(.*) \((fetch|push)\)$/);
+    if (!match) continue;
+    const entry = urls.get(match[1]) ?? {};
+    if (entry[match[3]] === undefined) entry[match[3]] = match[2];
+    urls.set(match[1], entry);
+  }
+  return names.map((name) => {
+    const fetchUrl = urls.get(name)?.fetch ?? name;
+    return { name, fetchUrl, pushUrl: urls.get(name)?.push ?? fetchUrl };
+  });
+}
+
+/**
+ * Each remote's fetch and push URL as `git remote get-url [--push]` reports
+ * them (`insteadOf` rewrites applied), read with one `git remote -v` instead
+ * of two Git processes per remote: repository identity is resolved several
+ * times per Git operation, and a repository with many remotes spent most of
+ * that time starting processes. When the listing itself fails, each remote is
+ * asked on its own, so a failure never reads as URL-less remotes.
+ */
 export async function getRepositoryRemoteUrls(directory) {
-  const result = await runGitCommand(directory, ['remote']);
-  if (!result.success) return [];
-  const names = String(result.stdout || '').split('\n').map((name) => name.trim()).filter(Boolean).sort();
+  const [namesResult, listResult] = await Promise.all([
+    runGitCommand(directory, ['remote']),
+    runGitCommand(directory, ['remote', '-v']),
+  ]);
+  if (!namesResult.success) return [];
+  const names = String(namesResult.stdout || '').split(/\r?\n/).map((name) => name.trim()).filter(Boolean).sort();
+  if (listResult.success) return parseRemoteListing(names, listResult.stdout);
   return Promise.all(names.map(async (name) => {
     const [fetchResult, pushResult] = await Promise.all([
       runGitCommand(directory, ['remote', 'get-url', name]),
@@ -2186,7 +2220,7 @@ const queueWorktreeBootstrap = (args) => {
           : WORKTREE_BOOTSTRAP_PHASE_DIRECTORY_CREATED,
         publicMessage,
         error?.hydration,
-        error?.hydration ? error?.code : pathLengthFailure ? 'PATH_LENGTH_LIMIT' : 'UNKNOWN',
+        bootstrapFailureCode(error, pathLengthFailure),
         bootstrapStore,
       ).catch(() => {});
       console.warn('Worktree bootstrap task failed:', error instanceof Error ? error.message : String(error));
@@ -4203,18 +4237,25 @@ export async function commit(directory, message, options = {}) {
   });
 }
 
-export async function getBranches(directory) {
+/**
+ * `remote: 'local'` answers from local refs alone, as `git branch -a` does: the
+ * callers that only need the checked-out branch and its upstream (publishing,
+ * worktree creation) must not wait on every remote's network round trip.
+ */
+export async function getBranches(directory, { remote = 'live' } = {}) {
   const { git } = await createRepositoryGitContext(directory);
 
   try {
     const result = await git.branch();
 
     const allBranches = result.all;
+    const remoteBranches = allBranches.filter(branch => branch.startsWith('remotes/'));
     // Read-only ref discovery, not a transfer: it never writes refs and never
     // takes the planned-operation path, so a branch pushed from elsewhere is
     // listed and a ref deleted on the remote is pruned without a fetch first.
-    const remoteBranches = allBranches.filter(branch => branch.startsWith('remotes/'));
-    const activeRemoteBranches = await filterActiveRemoteBranches(git, remoteBranches);
+    const activeRemoteBranches = remote === 'local'
+      ? remoteBranches
+      : await filterActiveRemoteBranches(git, directory, remoteBranches);
     const defaultBranches = await getRemoteDefaultBranches(git);
 
     return {
@@ -4287,9 +4328,37 @@ async function getRemoteDefaultBranches(git) {
   return defaults;
 }
 
-async function filterActiveRemoteBranches(git, remoteBranches) {
+// What each remote reported for its heads, per repository and remote. A
+// repository with many remotes paid one network round trip per remote on every
+// branch listing, and the Git panel lists branches several times per action.
+// An answer is reused while it is fresh and the local remote-tracking refs of
+// that remote are unchanged: a push or fetch from here changes them, so it
+// reads again. Concurrent listings share one round trip.
+const REMOTE_HEADS_TTL_MS = 30_000;
+const remoteHeadsCache = new Map();
+
+const readRemoteHeads = (git, directory, remote, localRefs) => {
+  const key = `${directory}\0${remote.name}\0${remote.refs?.fetch ?? ''}`;
+  const localKey = localRefs.join('\n');
+  const cached = remoteHeadsCache.get(key);
+  if (cached && cached.localKey === localKey && Date.now() - cached.at < REMOTE_HEADS_TTL_MS) return cached.heads;
+  const heads = git.raw(['ls-remote', '--heads', '--', remote.name]).then((output) => {
+    const names = new Set();
+    for (const line of output.trim().split('\n')) {
+      if (line.includes('\trefs/heads/')) names.add(line.split('\t')[1].replace('refs/heads/', ''));
+    }
+    return names;
+  });
+  const entry = { at: Date.now(), localKey, heads };
+  remoteHeadsCache.set(key, entry);
+  // A remote that did not answer is asked again next time.
+  heads.catch(() => { if (remoteHeadsCache.get(key) === entry) remoteHeadsCache.delete(key); });
+  return heads;
+};
+
+async function filterActiveRemoteBranches(git, directory, remoteBranches) {
   try {
-    const remotes = await git.getRemotes();
+    const remotes = await git.getRemotes(true);
     const branchesByRemote = new Map();
 
     // A remote that did not answer says nothing about its branches. Dropping
@@ -4301,16 +4370,8 @@ async function filterActiveRemoteBranches(git, remoteBranches) {
 
     await Promise.all(remotes.map(async (remote) => {
       try {
-        const lsRemoteResult = await git.raw(['ls-remote', '--heads', '--', remote.name]);
-        const actualRemoteBranches = new Set();
-        const lines = lsRemoteResult.trim().split('\n');
-        for (const line of lines) {
-          if (line.includes('\trefs/heads/')) {
-            const branchName = line.split('\t')[1].replace('refs/heads/', '');
-            actualRemoteBranches.add(branchName);
-          }
-        }
-        branchesByRemote.set(remote.name, actualRemoteBranches);
+        const localRefs = remoteBranches.filter((branch) => branch.startsWith(`remotes/${remote.name}/`));
+        branchesByRemote.set(remote.name, await readRemoteHeads(git, directory, remote, localRefs));
       } catch {
         unreachableRemotes.add(remote.name);
       }
@@ -4745,7 +4806,10 @@ export async function validateWorktreeCreate(directory, input = {}) {
         });
       }
     }
-    const contributorNeedsTransfer = contributorFork && input?.contributorTransferComplete !== true;
+    // A change request's head (a fork's or this repository's own) is fetched
+    // after validation, so its ref cannot be checked before that.
+    const contributorNeedsTransfer = (contributorFork || input?.changeRequestTransfer === true)
+      && input?.contributorTransferComplete !== true;
 
     let localBranch = '';
     let inferredUpstream = null;
@@ -5226,13 +5290,23 @@ const resolvePublishedLocalBranchUpstream = async (primaryWorktree, startRef) =>
  * commits after the fetch (a force-push), keeps the local ref; a failed fetch
  * keeps it too and says so.
  */
+// Why a fetch for a new worktree failed, when the user can do something about
+// it: the repository's access (an account that needs attention, refused
+// credentials). Anything else is left unnamed.
+const sourceFetchFailure = (error) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const access = error?.reason === 'needs-attention' || error?.code === 'AUTHENTICATION_REQUIRED'
+    || /authentication failed|could not read username|permission denied/i.test(message);
+  return access ? { sourceFetchFailed: true, sourceFetchReason: 'access' } : { sourceFetchFailed: true };
+};
+
 const preparePublishedLocalBranchSource = async (context, input, startRef) => {
   const upstream = await resolvePublishedLocalBranchUpstream(context.primaryWorktree, startRef);
   if (!upstream) return { input, sourceFetchFailed: false };
   try {
     await fetchRemoteBranchRef(context.primaryWorktree, upstream.remote, upstream.branch);
-  } catch {
-    return { input, sourceFetchFailed: true };
+  } catch (error) {
+    return { input, ...sourceFetchFailure(error) };
   }
   if (!(await isAncestorRef(context.primaryWorktree, upstream.localRef, upstream.trackingRef))) {
     return { input, sourceFetchFailed: false };
@@ -5271,7 +5345,7 @@ const prepareWorktreeCreateSource = async (context, input = {}) => {
     if (canFallbackToLocal) {
       return {
         input: { ...input, startRef: status.current },
-        sourceFetchFailed: true,
+        ...sourceFetchFailure(error),
       };
     }
 
@@ -5368,13 +5442,27 @@ export async function createWorktree(directory, input = {}, serverOptions = {}) 
     };
     if (prepared.sourceFetchFailed) {
       result.sourceFetchFailed = true;
+      if (prepared.sourceFetchReason) result.sourceFetchReason = prepared.sourceFetchReason;
     }
     return result;
   }
 
   const result = await attachGitWorktreeToCandidate(context, candidate, preparedInput, serverOptions);
-  return prepared.sourceFetchFailed ? { ...result, sourceFetchFailed: true } : result;
+  if (!prepared.sourceFetchFailed) return result;
+  return prepared.sourceFetchReason
+    ? { ...result, sourceFetchFailed: true, sourceFetchReason: prepared.sourceFetchReason }
+    : { ...result, sourceFetchFailed: true };
 }
+
+// The code a failed bootstrap is recorded with, which decides what the user is
+// told. A known cause is never recorded as unknown: a repository grant whose
+// account needs attention reads as the access problem it is.
+const bootstrapFailureCode = (error, pathLengthFailure) => {
+  if (error?.hydration) return error.code;
+  if (pathLengthFailure) return 'PATH_LENGTH_LIMIT';
+  if (error?.reason === 'needs-attention' || error?.code === 'AUTHENTICATION_REQUIRED') return 'AUTHENTICATION_REQUIRED';
+  return 'UNKNOWN';
+};
 
 const inspectWorktreeBootstrapRecovery = async (directory) => {
   const attached = await runGitCommand(directory, ['rev-parse', '--is-inside-work-tree']);

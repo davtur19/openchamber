@@ -75,6 +75,9 @@ COPY --from=builder /app/packages/web/bin ./packages/web/bin
 COPY --from=builder /app/packages/web/server ./packages/web/server
 COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
+RUN git config --global --add safe.directory '/projects/*'
+RUN git config --global --add safe.directory '/home/openchamber/.config/openchamber/chats/*'
+
 EXPOSE 3000
 
 ENTRYPOINT ["sh", "/home/openchamber/openchamber-entrypoint.sh"]

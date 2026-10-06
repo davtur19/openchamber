@@ -11,7 +11,6 @@ import { normalizeGitOutputPath } from './output-path.js';
 
 import {
   getCurrentIdentity,
-  unsupportedRepositoryRootReason,
   checkoutBranch,
   checkoutCommit,
   cherryPick,
@@ -188,20 +187,19 @@ async function createTempRepo() {
 // resolveBaseRefForLog
 // ---------------------------------------------------------------------------
 
-describe('unsupportedRepositoryRootReason', () => {
-  it('rejects a repository rooted at a filesystem root or the home directory', () => {
-    const home = path.join(os.tmpdir(), 'unsupported-root-home');
-    expect(unsupportedRepositoryRootReason('/', home)).toBe('filesystem-root');
-    expect(unsupportedRepositoryRootReason(path.parse(process.cwd()).root, home)).toBe('filesystem-root');
-    expect(unsupportedRepositoryRootReason(home, home)).toBe('home');
-    expect(unsupportedRepositoryRootReason(`${home}${path.sep}`, home)).toBe('home');
-  });
+describe('getLog on a repository with no commits yet', () => {
+  it('answers an empty history instead of failing, then the first commit appears', async () => {
+    const { tmpDir, git } = await createTempRepo();
+    fs.writeFileSync(path.join(tmpDir, 'a.txt'), 'hello\n');
 
-  it('accepts an ordinary project root, including one directly under home', () => {
-    const home = path.join(os.tmpdir(), 'unsupported-root-home');
-    expect(unsupportedRepositoryRootReason(path.join(home, 'project'), home)).toBeNull();
-    expect(unsupportedRepositoryRootReason(path.join(os.tmpdir(), 'repo'), home)).toBeNull();
-    expect(unsupportedRepositoryRootReason('', home)).toBeNull();
+    const empty = { all: [], latest: null, total: 0 };
+    expect(await getLog(tmpDir, { maxCount: 25 })).toEqual(empty);
+    expect(await getLog(tmpDir, { maxCount: 25, all: true })).toEqual(empty);
+
+    await git.add('a.txt');
+    await git.commit('first');
+    const history = await getLog(tmpDir, { maxCount: 25 });
+    expect(history.all.map((entry) => entry.message)).toEqual(['first']);
   });
 });
 
@@ -903,6 +901,46 @@ describe('getStatus', () => {
     runGit(repo, ['commit', '-m', 'Initial commit']);
 
     await expect(getStatus(repo)).resolves.toMatchObject({ current: 'main' });
+  });
+
+  it('names the base an upstream-less branch was counted against, and only then', async () => {
+    if (!canRunGit()) return;
+
+    const repo = createTempDir();
+    runGit(repo, ['init', '-b', 'trunk']);
+    runGit(repo, ['config', 'user.email', 'test@example.com']);
+    runGit(repo, ['config', 'user.name', 'Test User']);
+    runGit(repo, ['commit', '--allow-empty', '-m', 'Initial commit']);
+    runGit(repo, ['checkout', '-b', 'feature']);
+
+    // No main/master or origin ref to compare with: ahead 0 proves nothing.
+    await expect(getStatus(repo)).resolves.toMatchObject({ tracking: null, ahead: 0, aheadBase: null });
+
+    runGit(repo, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    await expect(getStatus(repo)).resolves.toMatchObject({ tracking: null, ahead: 0, aheadBase: 'origin/main' });
+
+    runGit(repo, ['commit', '--allow-empty', '-m', 'Unpublished work']);
+    await expect(getStatus(repo)).resolves.toMatchObject({ tracking: null, ahead: 1, aheadBase: 'origin/main' });
+  });
+
+  it('falls back to a local main as the base, but never to the branch itself', async () => {
+    if (!canRunGit()) return;
+
+    const repo = createTempDir();
+    const linked = path.join(createTempDir(), 'linked');
+    runGit(repo, ['init', '-b', 'trunk']);
+    runGit(repo, ['config', 'user.email', 'test@example.com']);
+    runGit(repo, ['config', 'user.name', 'Test User']);
+    runGit(repo, ['commit', '--allow-empty', '-m', 'Initial commit']);
+    runGit(repo, ['branch', 'main']);
+    runGit(repo, ['worktree', 'add', '-q', linked, 'main']);
+    runGit(linked, ['commit', '--allow-empty', '-m', 'Only on main']);
+
+    // No origin: `main` must not be measured against itself.
+    await expect(getStatus(linked)).resolves.toMatchObject({ current: 'main', tracking: null, aheadBase: null });
+
+    runGit(repo, ['checkout', '-q', '-b', 'feature', 'main']);
+    await expect(getStatus(repo)).resolves.toMatchObject({ current: 'feature', tracking: null, ahead: 0, aheadBase: 'main' });
   });
 
   it('rejects a non-git folder without using process.cwd()', async () => {

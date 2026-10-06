@@ -28,6 +28,7 @@ The following functions are exported and used by the web server:
 
 ### Repository Operations
 - `isGitRepository(directory)`: Check if a directory is a Git repository. A repository whose root is the home directory or a filesystem root (`C:\`, `/`) answers `false` (`unsupportedRepositoryRootReason`): such a repository covers the whole disk, every status read would walk it, and it is nearly always an accidental `git init`. All Git surfaces then show the non-repository state for that directory.
+- `repository-root.js` owns that home/disk-root rule (`unsupportedRepositoryRootReason`) and `vcsInitRefusal`, which the OpenCode routes and the VS Code bridge use to refuse OpenCode's `POST /api/vcs/init` in those places. It has no Git dependency so the VS Code extension can import it.
 - `getGlobalIdentity()`: Get global Git user.name, user.email, and core.sshCommand.
 - `getCurrentIdentity(directory)`: Get local Git identity (fallback to global if not set locally).
 - `hasLocalIdentity(directory)`: Check that both repository-local `user.name` and `user.email` are configured.
@@ -393,8 +394,9 @@ The following functions are internal helpers used by exported functions:
 ### Status Response
 - `current`: Current branch name.
 - `tracking`: Upstream branch (e.g., 'origin/main').
-- `ahead`: Number of commits ahead of upstream.
+- `ahead`: Number of commits ahead of upstream. Without an upstream, a full read counts the commits missing from the base branch instead (`origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`).
 - `behind`: Number of commits behind upstream.
+- `aheadBase`: The base ref `ahead` was counted against when there is no upstream; `null` when no such count was made (an upstream exists, light mode, detached HEAD, or no base ref found), so `ahead: 0` alone never means nothing is unpublished.
 - `upstreamComparison`: Optional comparison against `upstream/<current-branch>`, with `{ remote, branch, ahead, behind }`.
 - `files`: Array of file objects with `path`, `index`, `working_dir` status codes.
 - `isClean`: Boolean indicating if working tree is clean.

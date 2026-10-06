@@ -44,6 +44,8 @@ const customProviderIconsSchema = z.record(
   z.enum(['server', 'cloud', 'database', 'terminal', 'code', 'ai']),
 );
 const CUSTOM_PROVIDER_ICONS_MAX = 256;
+// `provider/model` last picked in a chat composer.
+const lastSelectedModelSchema = z.string().trim().min(1).max(512);
 
 /** Provider id -> icon id; unknown icons and malformed entries are dropped one by one. */
 const sanitizeCustomProviderIcons = (value) => {
@@ -87,6 +89,9 @@ export const createSettingsHelpers = (dependencies) => {
   const TERMINAL_SHELL_VALUES = new Set(['auto', 'bash', 'zsh', 'sh', 'fish', 'pwsh', 'powershell', 'cmd', 'dash', 'ksh', 'nu']);
   const SIDEBAR_PROJECT_DISPLAY_MODE_VALUES = new Set(['all', 'single']);
   const SIDEBAR_VIEW_MODE_VALUES = new Set(['projects', 'timeline']);
+  // The interface languages (`LOCALES` in packages/ui/src/lib/i18n/runtime.ts);
+  // settings-helpers.test.js fails when the two lists drift apart.
+  const UI_LOCALE_VALUES = new Set(['en', 'de', 'fr', 'nl', 'zh-CN', 'zh-TW', 'uk', 'es', 'pt-BR', 'ko', 'pl', 'ja', 'tr']);
   const SIDEBAR_PROJECT_SORT_ORDER_VALUES = new Set(['manual', 'a-z', 'z-a', 'date-added', 'recent']);
   const SIDEBAR_WORKTREE_SORT_ORDER_VALUES = new Set(['recent', 'manual', 'a-z']);
   const HIDDEN_MODELS_MAX = 1024;
@@ -202,6 +207,9 @@ export const createSettingsHelpers = (dependencies) => {
     }
     if (isInputHistoryLimit(candidate.inputHistoryLimit)) {
       result.inputHistoryLimit = candidate.inputHistoryLimit;
+    }
+    if (UI_LOCALE_VALUES.has(candidate.locale)) {
+      result.locale = candidate.locale;
     }
     if (typeof candidate.useSystemTheme === 'boolean') {
       result.useSystemTheme = candidate.useSystemTheme;
@@ -600,6 +608,10 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.defaultModel === 'string') {
       const trimmed = candidate.defaultModel.trim();
       result.defaultModel = trimmed.length > 0 ? trimmed : undefined;
+    }
+    const lastSelectedModel = lastSelectedModelSchema.safeParse(candidate.lastSelectedModel);
+    if (lastSelectedModel.success) {
+      result.lastSelectedModel = lastSelectedModel.data;
     }
     if (typeof candidate.defaultVariant === 'string') {
       const trimmed = candidate.defaultVariant.trim();

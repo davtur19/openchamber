@@ -74,6 +74,12 @@
         "desktop"
       ]
     },
+    "desktopLinuxNativeFrame": {
+      "scope": "instance",
+      "surfaces": [
+        "desktop"
+      ]
+    },
     "desktopUiPassword": {
       "scope": "instance",
       "surfaces": [
@@ -461,6 +467,12 @@
       "scope": "profile"
     },
     "monoFont": {
+      "scope": "profile"
+    },
+    "customUiFont": {
+      "scope": "profile"
+    },
+    "customMonoFont": {
       "scope": "profile"
     },
     "padding": {

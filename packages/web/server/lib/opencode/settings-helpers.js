@@ -282,6 +282,9 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.desktopMacMenuBarEnabled === 'boolean') {
       result.desktopMacMenuBarEnabled = candidate.desktopMacMenuBarEnabled;
     }
+    if (typeof candidate.desktopLinuxNativeFrame === 'boolean') {
+      result.desktopLinuxNativeFrame = candidate.desktopLinuxNativeFrame;
+    }
     if (typeof candidate.desktopWindowControlsPosition === 'string') {
       const mode = candidate.desktopWindowControlsPosition.trim();
       // Legacy "auto" never read OS chrome config; persist as the right default.
@@ -393,6 +396,13 @@ export const createSettingsHelpers = (dependencies) => {
     }
     if (typeof candidate.monoFont === 'string' && candidate.monoFont.length > 0) {
       result.monoFont = candidate.monoFont;
+    }
+    // Family names for the "custom" font choice; empty clears them.
+    if (typeof candidate.customUiFont === 'string') {
+      result.customUiFont = candidate.customUiFont.slice(0, 100);
+    }
+    if (typeof candidate.customMonoFont === 'string') {
+      result.customMonoFont = candidate.customMonoFont.slice(0, 100);
     }
     if (typeof candidate.githubClientId === 'string') {
       const trimmed = candidate.githubClientId.trim();

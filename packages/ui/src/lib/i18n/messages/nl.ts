@@ -10,6 +10,7 @@ import { fileArtifactsI18n } from './file-artifacts.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
+import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
@@ -130,6 +131,7 @@ export const dict = {
   ...usageStatsI18n.nl,
   ...webSearchI18n.nl,
   ...isolatedSpacesI18n.nl,
+  ...environmentI18n.nl,
   ...providersI18n.nl,
   ...mcpGridI18n.nl,
   ...pluginsGridI18n.nl,
@@ -3759,4 +3761,18 @@ export const dict = {
   'multirun.overview.bar.waiting': 'Runs die op u wachten: {count}. De runs kunnen niet klaar zijn voordat u antwoord geeft.',
   'multirun.overview.prompt.expand': 'Alles tonen',
   'multirun.overview.prompt.collapse': 'Minder tonen',
+  'gitView.changes.revertFileDialogTitle': 'Wijzigingen in bestand terugdraaien?',
+  'gitView.changes.revertFileDescription': 'Hiermee worden je lokale wijzigingen in {path} verwijderd.',
+  'gitView.changes.revertFileConfirm': 'Bestand terugdraaien',
+  'diffView.hunk.discardDialogTitle': 'Dit blok verwijderen?',
+  'diffView.hunk.discardDescription': 'Hiermee worden deze lokale wijzigingen in {path} verwijderd.',
+  'sessions.sidebar.project.actions.archiveAll': 'Alle sessies archiveren',
+  'sessions.sidebar.project.archiveAll.title': 'Sessies in {project} archiveren?',
+  'sessions.sidebar.project.archiveAll.descriptionSingle': '{count} sessie gaat naar het archief. Vastgezette, lopende en \'In bewerking\'-sessies blijven.',
+  'sessions.sidebar.project.archiveAll.descriptionPlural': '{count} sessies gaan naar het archief. Vastgezette, lopende en \'In bewerking\'-sessies blijven.',
+  'sessions.sidebar.project.archiveAll.nothing': 'Niets te archiveren: elke sessie hier is vastgezet, loopt of staat \'In bewerking\'.',
+  'contextPanel.browser.devServers.hide': 'Poort {port} in deze lijst verbergen',
+  'contextPanel.browser.devServers.showHiddenSingle': '{count} verborgen poort tonen',
+  'contextPanel.browser.devServers.showHiddenPlural': '{count} verborgen poorten tonen',
+  'sidebarFilesTree.menu.openInDefaultApp': 'Openen in standaardapp',
 } as const;

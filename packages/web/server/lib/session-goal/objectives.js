@@ -24,7 +24,7 @@ const goalsDir = () => path.join(
 
 const objectiveFilePath = (sessionId) => path.join(goalsDir(), `${sessionId}.md`);
 
-export const isValidObjectiveKey = (sessionId) =>
+const isValidObjectiveKey = (sessionId) =>
   typeof sessionId === 'string' && SESSION_ID_PATTERN.test(sessionId);
 
 const clampContent = (content, limit = GOAL_OBJECTIVE_CHAR_LIMIT) => String(content ?? '').trim().slice(0, limit);

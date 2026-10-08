@@ -1907,6 +1907,7 @@ describe("abortSession funnel and abort sources", () => {
   })
 
   test("routes abort through the session directory instead of the current directory", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session] })
     const currentStore = createStore({})
@@ -1925,6 +1926,7 @@ describe("abortSession funnel and abort sources", () => {
   })
 
   test("abortCurrentOperation forwards its source through the funnel", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session] })
     const childStores = createChildStores([["/test/project", sessionStore]])
@@ -1939,8 +1941,11 @@ describe("abortSession funnel and abort sources", () => {
   })
 
   test("revertToMessage aborts only a busy session through the funnel", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
+    // SAFETY: fixture sets only the members the revert path reads: id, sessionID, role, and time.created.
     const targetMessage = { id: "msg_2", sessionID: "session-a", role: "user", time: { created: 2 } } as Message
+    // SAFETY: fixture sets only the members the revert path reads: id, messageID, type, and text.
     const targetPart = { id: "prt_2", messageID: "msg_2", type: "text", text: "edit this" } as Part
     const sessionStore = createStore({}, {
       session: [session],
@@ -1960,8 +1965,11 @@ describe("abortSession funnel and abort sources", () => {
   })
 
   test("revertToMessage does not abort an idle session", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
+    // SAFETY: fixture sets only the members the revert path reads: id, sessionID, role, and time.created.
     const targetMessage = { id: "msg_2", sessionID: "session-a", role: "user", time: { created: 2 } } as Message
+    // SAFETY: fixture sets only the members the revert path reads: id, messageID, type, and text.
     const targetPart = { id: "prt_2", messageID: "msg_2", type: "text", text: "edit this" } as Part
     const sessionStore = createStore({}, {
       session: [session],
@@ -1981,6 +1989,7 @@ describe("abortSession funnel and abort sources", () => {
   })
 
   test("pause-goal does not abort an already idle session", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "idle" } } })
     const childStores = createChildStores([["/test/project", sessionStore]])
@@ -1994,6 +2003,7 @@ describe("abortSession funnel and abort sources", () => {
   })
 
   test("pause-goal aborts a busy session", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
     const childStores = createChildStores([["/test/project", sessionStore]])
@@ -2012,7 +2022,7 @@ describe("abort trace ring buffer", () => {
   const ABORT_TRACE_STORAGE_KEY = "openchamber.abortTrace.v1"
   let storage = new Map<string, string>()
 
-  const fakeWindow = (): { localStorage: Pick<Storage, "getItem" | "setItem" | "removeItem"> } => ({
+  const fakeWindow = () => ({
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => { storage.set(key, value) },
@@ -2031,6 +2041,7 @@ describe("abort trace ring buffer", () => {
   })
 
   test("records every abort with its source, always-on", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
     const childStores = createChildStores([["/test/project", sessionStore]])
@@ -2049,6 +2060,7 @@ describe("abort trace ring buffer", () => {
   })
 
   test("caps the ring buffer at 100 events", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
     const childStores = createChildStores([["/test/project", sessionStore]])
@@ -2062,11 +2074,13 @@ describe("abort trace ring buffer", () => {
 
     const trace = getAbortTrace()
     expect(trace.length).toBe(100)
+    // SAFETY: JSON.parse returns exactly the trace this test persisted; only its length is asserted.
     const stored = JSON.parse(storage.get(ABORT_TRACE_STORAGE_KEY) ?? "[]") as unknown[]
     expect(stored.length).toBe(100)
   })
 
   test("clearAbortTrace empties the buffer", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
     const childStores = createChildStores([["/test/project", sessionStore]])
@@ -2083,6 +2097,7 @@ describe("abort trace ring buffer", () => {
   })
 
   test("tracing never blocks or breaks the abort itself", async () => {
+    // SAFETY: fixture sets only the members this test asserts; the other Session fields are not read on this path.
     const session = { id: "session-a", time: { created: 1 } } as Session
     const sessionStore = createStore({}, { session: [session], session_status: { "session-a": { type: "busy" } } })
     const childStores = createChildStores([["/test/project", sessionStore]])

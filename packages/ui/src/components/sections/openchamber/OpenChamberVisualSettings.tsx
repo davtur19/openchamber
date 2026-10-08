@@ -2090,7 +2090,7 @@ export const OpenChamberVisualSettings: React.FC<OpenChamberVisualSettingsProps>
                                             <NumberInput
                                                 value={sessionGoalObjectiveCharLimit}
                                                 onValueChange={(value) => {
-                                                    if (typeof value === 'number' && Number.isFinite(value) && value >= 500) {
+                                                    if (Number.isFinite(value) && value >= 500) {
                                                         setSessionGoalObjectiveCharLimit(Math.floor(value));
                                                     }
                                                 }}

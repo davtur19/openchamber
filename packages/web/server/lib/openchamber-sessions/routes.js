@@ -611,6 +611,10 @@ export const createOpenChamberSessionService = (dependencies) => {
       // v2 no longer publishes a command's template, so a slash command's goal
       // objective is the prompt the user typed rather than the expanded body.
       const goalSettings = await readSettingsFromDiskMigrated().catch(() => ({}));
+      const goalOverrides = {};
+      if (Number.isFinite(goalSettings.sessionGoalObjectiveCharLimit)) {
+        goalOverrides.charLimit = goalSettings.sessionGoalObjectiveCharLimit;
+      }
       await (createSessionGoalOverride || createSessionGoal)({
         baseUrl,
         authHeaders,
@@ -621,7 +625,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         providerID: model.providerID,
         modelID: model.modelID,
         onWarning: (message, error) => console.warn(`[OpenChamberSessions] ${message}:`, error?.message || error),
-        ...(typeof goalSettings.sessionGoalObjectiveCharLimit === 'number' ? { charLimit: goalSettings.sessionGoalObjectiveCharLimit } : {}),
+        ...goalOverrides,
         // v2 has no session-metadata route, so the goal record goes to
         // OpenChamber's own store — the same one the proxy overlays back.
         persistSessionGoal: async (goalSessionID, goalDirectory, goal) => {

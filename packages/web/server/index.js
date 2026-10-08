@@ -966,13 +966,13 @@ const sessionGoalRuntime = createSessionGoalRuntime({
   getMaxAutoTurns: async () => {
     const settings = await readSettingsFromDiskMigrated().catch(() => ({}));
     const value = settings?.sessionGoalMaxAutoTurns;
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 20;
+    if (!Number.isFinite(value) || value < 0) return 20;
     return value === 0 ? Infinity : value;
   },
   getObjectiveCharLimit: async () => {
     const settings = await readSettingsFromDiskMigrated().catch(() => ({}));
     const value = settings?.sessionGoalObjectiveCharLimit;
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 5000;
+    return Number.isFinite(value) && value > 0 ? value : 5000;
   },
   classifierEndpoint: () => routingRuntime.classifierEndpoint(),
   jev: createJevClient(),

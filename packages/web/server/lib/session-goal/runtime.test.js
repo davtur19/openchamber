@@ -631,19 +631,22 @@ describe('session goal transient vs permanent failures', () => {
   // v2 flat assistant record; the runtime maps it through toLoopMessage.
   // Errors use v2's structured shape ({ type, ... }), which the runtime
   // renames to `name` for the v1-era classifiers.
-  const assistantMessage = (overrides = {}) => ({
-    id: 'msg_assistant',
-    sessionID: SESSION_ID,
-    type: 'assistant',
-    agent: 'build',
-    model: { providerID: 'provider', id: 'model' },
-    content: [{ type: 'text', text: 'Still working on it.' }],
-    finish: 'stop',
-    time: { created: 1, completed: 2 },
-    tokens: { input: 1, output: 1, cache: { read: 0 } },
-    ...('error' in overrides ? { error: overrides.error } : {}),
-    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== 'error')),
-  });
+  const assistantMessage = (overrides = {}) => {
+    const errorOverride = 'error' in overrides ? { error: overrides.error } : {};
+    return {
+      id: 'msg_assistant',
+      sessionID: SESSION_ID,
+      type: 'assistant',
+      agent: 'build',
+      model: { providerID: 'provider', id: 'model' },
+      content: [{ type: 'text', text: 'Still working on it.' }],
+      finish: 'stop',
+      time: { created: 1, completed: 2 },
+      tokens: { input: 1, output: 1, cache: { read: 0 } },
+      ...errorOverride,
+      ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== 'error')),
+    };
+  };
 
   // Stateful harness over the v2 seams: persistSessionGoal folds into the
   // goal returned by readSessionMetadata, so streaks round-trip across ticks

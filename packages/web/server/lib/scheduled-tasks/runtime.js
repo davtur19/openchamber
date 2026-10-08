@@ -696,6 +696,10 @@ export const createScheduledTasksRuntime = (deps) => {
         ? expandCommandGoalObjective(scheduledCommand.template, scheduledCommand.arguments)
         : null;
       const goalSettings = await readSettingsFromDiskMigrated().catch(() => ({}));
+      const goalOverrides = {};
+      if (Number.isFinite(goalSettings.sessionGoalObjectiveCharLimit)) {
+        goalOverrides.charLimit = goalSettings.sessionGoalObjectiveCharLimit;
+      }
       await createSessionGoal({
         baseUrl,
         authHeaders,
@@ -707,7 +711,7 @@ export const createScheduledTasksRuntime = (deps) => {
         providerID: selection.providerID ?? undefined,
         modelID: selection.modelID ?? undefined,
         onWarning: (message, error) => console.warn(`[scheduled-tasks] ${message}:`, error?.message || error),
-        ...(typeof goalSettings.sessionGoalObjectiveCharLimit === 'number' ? { charLimit: goalSettings.sessionGoalObjectiveCharLimit } : {}),
+        ...goalOverrides,
       });
     }
 

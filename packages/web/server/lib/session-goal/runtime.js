@@ -18,6 +18,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { isRecord, isString } from '../shared/guards.js';
+
 import { assertPromptResponse } from '../opencode/prompt-response.js';
 import { GOAL_OBJECTIVE_CHAR_LIMIT, readObjective } from './objectives.js';
 import {
@@ -183,17 +185,17 @@ const isTransientMessage = (value) => {
 // gateway HTML error page under 401/403). Everything else (auth, not found,
 // content policy, shape) is permanent.
 const isTransientTurnError = (error) => {
-  if (!error || typeof error !== 'object') return false;
-  const data = error.data && typeof error.data === 'object' ? error.data : {};
+  if (!isRecord(error)) return false;
+  const data = isRecord(error.data) ? error.data : {};
   const status = Number(error.status ?? error.statusCode ?? data.statusCode);
   if (Number.isFinite(status)) {
     if (status >= 500 || status === 429) return true;
     if (status >= 400) return false;
   }
-  const name = typeof error.name === 'string' ? error.name : '';
+  const name = isString(error.name) ? error.name : '';
   if (/timeout|timed out/i.test(name)) return true;
   const messages = [error.message, data.message, data.responseBody, error.responseBody]
-    .filter((value) => typeof value === 'string')
+    .filter(isString)
     .join('\n');
   return isTransientMessage(messages) || /timeout|timed out/i.test(messages);
 };
@@ -577,9 +579,9 @@ export const createSessionGoalRuntime = ({
           // override / opencode config); naming the provider is what keeps it.
           prompt: buildSmallModelAuditPrompt({ objective, answer }),
           directory,
-          sessionID: typeof lastAssistantInfo?.sessionID === 'string' ? lastAssistantInfo.sessionID : undefined,
-          preferredProviderID: typeof lastAssistantInfo?.providerID === 'string' ? lastAssistantInfo.providerID : undefined,
-          preferredModelID: typeof lastAssistantInfo?.modelID === 'string' ? lastAssistantInfo.modelID : undefined,
+          sessionID: isString(lastAssistantInfo?.sessionID) ? lastAssistantInfo.sessionID : undefined,
+          preferredProviderID: isString(lastAssistantInfo?.providerID) ? lastAssistantInfo.providerID : undefined,
+          preferredModelID: isString(lastAssistantInfo?.modelID) ? lastAssistantInfo.modelID : undefined,
         });
         const scores = readSmallModelAnswers(generated?.text);
         if (!scores) {
@@ -668,7 +670,7 @@ export const createSessionGoalRuntime = ({
     // die just because a file went away.
     let effectiveObjective = goal.objective;
     if (goal.objectiveFile) {
-      const objectiveCharLimit = typeof getObjectiveCharLimit === 'function'
+      const objectiveCharLimit = getObjectiveCharLimit instanceof Function
         ? await getObjectiveCharLimit().catch(() => GOAL_OBJECTIVE_CHAR_LIMIT)
         : GOAL_OBJECTIVE_CHAR_LIMIT;
       const fileObjective = await readObjective(sessionId, objectiveCharLimit);
@@ -843,8 +845,8 @@ export const createSessionGoalRuntime = ({
     // immediately — retrying those is pointless. Length cutoffs are
     // in-progress continuations, not failures, and are handled below.
     if (!abortedTail && !lengthTail && hasError) {
-      const turnError = error !== null && typeof error === 'object' ? error : null;
-      const reason = turnError && typeof turnError.name === 'string' && turnError.name
+      const turnError = isRecord(error) ? error : null;
+      const reason = turnError && isString(turnError.name) && turnError.name
         ? turnError.name
         : errorName || 'assistant turn failed';
       if (!turnError || !isTransientTurnError(turnError)) {

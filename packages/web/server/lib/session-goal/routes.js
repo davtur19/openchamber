@@ -1,10 +1,10 @@
 import { GOAL_OBJECTIVE_CHAR_LIMIT, deleteObjective, readObjective, writeObjective } from './objectives.js';
 
 const resolveCharLimit = async (readSettingsFromDisk) => {
-  if (typeof readSettingsFromDisk !== 'function') return GOAL_OBJECTIVE_CHAR_LIMIT;
+  if (!(readSettingsFromDisk instanceof Function)) return GOAL_OBJECTIVE_CHAR_LIMIT;
   const settings = await readSettingsFromDisk().catch(() => null);
   const value = settings?.sessionGoalObjectiveCharLimit;
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : GOAL_OBJECTIVE_CHAR_LIMIT;
+  return Number.isFinite(value) && value > 0 ? value : GOAL_OBJECTIVE_CHAR_LIMIT;
 };
 
 // OpenChamber-owned routes for file-backed goal objectives, keyed by session

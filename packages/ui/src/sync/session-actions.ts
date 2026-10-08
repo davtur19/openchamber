@@ -65,8 +65,6 @@ const SEND_CONFIRMATION_REFETCH_LIMIT = 30
 // for one user message. Wait for the connection to actually come back (an
 // authoritative signal, not a blind sleep), then retry with backoff. A healthy
 // connection skips the wait and answers on the first attempt.
-const UNREVERT_REFETCH_ATTEMPTS = 3
-const UNREVERT_REFETCH_RETRY_MS = 150
 const SEND_CONFIRMATION_REFETCH_ATTEMPTS = 3
 const SEND_CONFIRMATION_REFETCH_BASE_RETRY_MS = 250
 const SEND_CONFIRMATION_RECONNECT_TIMEOUT_MS = 3000
@@ -521,21 +519,6 @@ function descendantRevertCutoff(state: { session: readonly Session[] }, target: 
   const run = readSubagentRun(target)
   const child = run ? state.session.find((session) => session.id === run.childSessionID) : undefined
   return child ? Math.min(child.time.created, target.time.created) : target.time.created
-}
-
-async function cascadeUnrevertToDescendants(rootId: string): Promise<void> {
-  for (const { session, directory } of getDescendantSessions(rootId)) {
-    if (!session.revert) continue
-    try {
-      // A running descendant keeps writing messages that the unrevert would
-      // race against, so stop it first for the same reason the parent aborts.
-      await abortDescendantIfBusy(session.id, directory)
-      await opencodeClient.clearRevert(session.id, directory)
-      mirrorSessionIntoLiveStores(await opencodeClient.getSession(session.id, directory), directory)
-    } catch (error) {
-      console.error(`[session-actions] Failed to cascade unrevert to descendant ${session.id}:`, error)
-    }
-  }
 }
 
 async function cascadeRevertToDescendants(rootId: string, cutoff: number): Promise<void> {
@@ -2243,7 +2226,7 @@ export type AbortTraceEvent = {
 }
 
 export function getAbortTrace(): AbortTraceEvent[] {
-  if (typeof window === "undefined") return []
+  if (globalThis.window === undefined) return []
   try {
     const raw = window.localStorage.getItem(ABORT_TRACE_STORAGE_KEY)
     if (!raw) return []
@@ -2255,7 +2238,7 @@ export function getAbortTrace(): AbortTraceEvent[] {
 }
 
 export function clearAbortTrace(): void {
-  if (typeof window === "undefined") return
+  if (globalThis.window === undefined) return
   try {
     window.localStorage.removeItem(ABORT_TRACE_STORAGE_KEY)
   } catch {
@@ -2265,7 +2248,7 @@ export function clearAbortTrace(): void {
 
 function recordAbortTrace(event: AbortTraceEvent): void {
   console.debug("[session-abort]", event)
-  if (typeof window === "undefined") return
+  if (globalThis.window === undefined) return
   try {
     const events = getAbortTrace()
     events.push(event)
@@ -2856,42 +2839,6 @@ export async function forkFromLastCompletedTurn(sessionId: string): Promise<Sess
   const messageId = findLastCompletedTurnMessageId(state.message[sessionId] ?? [], turnRunning)
   if (!messageId) throw new NothingToForkError()
   return forkAfterMessage(sessionId, messageId)
-}
-
-/**
-/**
- * Unrevert — restore all previously reverted messages.
- * Restore all previously reverted messages. Aborts if busy, merges result.
- */
-export async function unrevertSession(sessionId: string): Promise<void> {
-  const { store, directory } = dirStoreForSession(sessionId)
-  const state = store.getState()
-  const previousMessageCount = state.message[sessionId]?.length ?? 0
-
-  // Abort if busy
-  const status = state.session_status[sessionId]
-  if (status && status.type !== "idle") {
-    await abortSession(sessionId, "unrevert")
-  }
-
-  // Descendants go first because revert can also restore shared file state.
-  // Applying the parent last leaves the working tree at the parent's snapshot.
-  await cascadeUnrevertToDescendants(sessionId)
-  await opencodeClient.clearRevert(sessionId, directory)
-  const unrevertedSession = await opencodeClient.getSession(sessionId, directory)
-  const current = store.getState()
-  const sessions = [...current.session]
-  const idx = sessions.findIndex((s) => s.id === sessionId)
-  if (idx >= 0) {
-    sessions[idx] = unrevertedSession
-    store.setState({ session: sessions })
-  }
-  for (let attempt = 0; attempt < UNREVERT_REFETCH_ATTEMPTS; attempt += 1) {
-    if (attempt > 0) await wait(UNREVERT_REFETCH_RETRY_MS)
-    await refetchSessionMessages(sessionId)
-    const nextMessageCount = store.getState().message[sessionId]?.length ?? 0
-    if (nextMessageCount > previousMessageCount) return
-  }
 }
 
 /**

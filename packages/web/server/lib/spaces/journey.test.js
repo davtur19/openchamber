@@ -198,10 +198,26 @@ describe('the journey: create', () => {
 
 describe('the journey: disk and clean-up', () => {
   const DISK = { imageBytes: 1_632_000_000, toolsBytes: 438_000_000, spacesBytes: 0, freeBytes: 1_632_000_000, freesImage: true };
-  const placeWithDisk = (cleaned) => ({
+  const placeWithDisk = (cleaned, pull = { pulling: false, pulls: 0, fail: null }) => ({
     ...createMemoryPlace(),
-    readDisk: async () => DISK,
+    readDisk: async () => ({ ...DISK, imagePulling: pull.pulling }),
     cleanUpDisk: async () => { cleaned.count += 1; return cleaned.outcome; },
+    pullImage: async () => { pull.pulls += 1; if (pull.fail) throw pull.fail; },
+    imagePulling: () => pull.pulling,
+  });
+
+  it('starts the image download and answers the disk at once; a clean-up waits for the download; a failed download is logged, not thrown', async () => {
+    const warnings = [];
+    const cleaned = { count: 0, outcome: { freedBytes: 0, kept: [], machine: { state: 'skipped' } } };
+    const pull = { pulling: true, pulls: 0, fail: new SpaceError('image_pull_failed', 'Could not download the base image: no route to host.') };
+    const { journey } = journeyWith({ place: placeWithDisk(cleaned, pull), logger: { warn: (line) => warnings.push(line) } });
+    expect(await journey.pullImage('memory')).toEqual({ ...DISK, imagePulling: true });
+    expect(pull.pulls).toBe(1);
+    await expect(journey.pullImage('kubernetes')).rejects.toMatchObject({ code: 'place_not_found' });
+    await expect(journey.cleanUpDisk('memory')).rejects.toMatchObject({ code: 'image_pulling' });
+    expect(cleaned.count).toBe(0);
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(warnings).toEqual(['[spaces] the image download failed: image_pull_failed']);
   });
 
   it('answers what was freed and the disk after, keeps Docker\'s words out of the answer and logs them', async () => {
@@ -215,8 +231,8 @@ describe('the journey: disk and clean-up', () => {
       },
     };
     const { journey } = journeyWith({ place: placeWithDisk(cleaned), logger: { warn: (line) => warnings.push(line) } });
-    expect(await journey.readDisk('memory')).toEqual(DISK);
-    expect(await journey.cleanUpDisk('memory')).toEqual({ freedBytes: 440_000_000, kept: [{ kind: 'image', reason: 'in_use' }, { kind: 'tools', reason: 'failed' }], disk: DISK });
+    expect(await journey.readDisk('memory')).toEqual({ ...DISK, imagePulling: false });
+    expect(await journey.cleanUpDisk('memory')).toEqual({ freedBytes: 440_000_000, kept: [{ kind: 'image', reason: 'in_use' }, { kind: 'tools', reason: 'failed' }], disk: { ...DISK, imagePulling: false } });
     expect(warnings).toEqual([
       '[spaces] clean-up could not remove tools openchamber-tools-x: disk on fire',
       '[spaces] the Colima machine did not trim its disk: sudo: a password is required',
@@ -281,6 +297,17 @@ describe('the journey: start, stop, remove', () => {
     await journey.stopSpace(id);
     await journey.startSpace(id);
     expect(calls.map(([name]) => name)).toEqual(['setNetwork']);
+  });
+
+  it('lists a space whose code never arrived as a failed creation, which Remove takes away', async () => {
+    // A host that quit in the middle of bringing the code in leaves the containers running and
+    // the record without a space path. The next host must not list that as a healthy space.
+    const { journey, records, place, id } = await ready();
+    records.update(id, { spacePath: null, base: null });
+    expect((await journey.listSpaces())[0]).toMatchObject({ id, state: 'failed', step: 'failed', failure: { code: 'space_code_never_arrived', message: expect.stringContaining('closed before the code arrived'), details: null } });
+    expect(await journey.removeSpace(id)).toMatchObject({ id, removed: true, refsRemoved: true, failures: [] });
+    expect(await place.list()).toEqual([]);
+    expect(records.read(id)).toEqual({ status: 'missing', record: null });
   });
 
   it('removes the space, the refs in the user\'s repository and the record', async () => {
@@ -1163,6 +1190,14 @@ describe('the journey: the chat archive of a deleted space', () => {
     return { ...made, ...archive, id };
   };
   const notSaved = () => new SpaceError('chats_not_saved', 'The chats of "Fix login" could not be saved.', { name: 'Fix login', tooLarge: ['Big one'], failed: 0, listed: true });
+
+  it('does not ask the archive for a space whose code never arrived, and removes it', async () => {
+    const { journey, place, records, asked, id } = await ready();
+    records.update(id, { spacePath: null, base: null });
+    expect(await journey.removeSpace(id)).toMatchObject({ id, removed: true, refsRemoved: true, failures: [], chats: null });
+    expect(asked).toEqual([]);
+    expect(await place.list()).toEqual([]);
+  });
 
   it('saves the chats of a running space before it goes, and says how many', async () => {
     const { journey, place, asked, calls, id } = await ready();

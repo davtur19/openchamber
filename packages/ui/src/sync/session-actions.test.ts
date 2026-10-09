@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test"
+import { describe, expect, test, beforeEach, afterEach, mock, spyOn } from "bun:test"
 import type { PermissionRequest } from "@/types/permission"
 import type { FormRequest } from "@/lib/opencode/model"
 import type { InputState } from "./input-store"
@@ -2636,6 +2636,39 @@ describe("revertToMessage passes session directory", () => {
     expect((thrown as Error).message).toContain("session.revert.stage failed (500)")
     expect((sessionStore.getState().session[0] as Session & { revert?: { messageID?: string } }).revert).toBe(undefined)
     expect(inputState.pendingInputText).toBe("previous draft")
+  })
+
+  test("a failed revert surfaces an error toast", async () => {
+    const session = sessionFixture("session-a")
+    const targetMessage: Message = { id: "msg_2", sessionID: "session-a", role: "user", time: { created: 2 } }
+    const targetPart: Part = { id: "prt_2", sessionID: "session-a", messageID: "msg_2", type: "text", text: "edit this" }
+    const sessionStore = createStore({}, {
+      session: [session],
+      message: { "session-a": [targetMessage] },
+      part: { "msg_2": [targetPart] },
+    })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+    failingRevertSessionIds.add("session-a")
+
+    const { setActionRefs, revertToMessage } = await import("./session-actions")
+    setActionRefs(childStores, () => "/test/project")
+    const { toast } = await import("sonner")
+    const errors = spyOn(toast, "error").mockImplementation(() => "error-toast")
+
+    let thrown: unknown
+    try {
+      await revertToMessage("session-a", "msg_2")
+    } catch (error) {
+      thrown = error
+    }
+
+    // The rejection still propagates (undo/redo skip their success toast on
+    // it), and the user gets the failure instead of a silent no-op.
+    expect(thrown).toBeInstanceOf(Error)
+    expect(String(thrown)).toContain("session.revert.stage failed (500)")
+    expect(errors.mock.calls.length).toBe(1)
+    expect(errors.mock.calls[0]?.[0]).toBe("Revert failed")
+    errors.mockRestore()
   })
 
   test("reverts recursive descendants at their first user message on or after the parent cutoff", async () => {

@@ -11,6 +11,7 @@
 import { clearStagedRevert, commitStagedRevert } from '@/sync/session-actions';
 import React from 'react';
 import type { Part } from '@/lib/opencode/model';
+import { toast } from 'sonner';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -84,20 +85,28 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         setSettling('commit');
         try {
             await commitStagedRevert(sessionId);
+        } catch (error) {
+            toast.error(t('chat.revert.toast.commitFailed'), {
+                description: error instanceof Error ? error.message : String(error),
+            });
         } finally {
             setSettling(null);
         }
-    }, [sessionId, settling]);
+    }, [sessionId, settling, t]);
 
     const handleClear = React.useCallback(async () => {
         if (!sessionId || settling) return;
         setSettling('clear');
         try {
             await clearStagedRevert(sessionId);
+        } catch (error) {
+            toast.error(t('chat.revert.toast.clearFailed'), {
+                description: error instanceof Error ? error.message : String(error),
+            });
         } finally {
             setSettling(null);
         }
-    }, [sessionId, settling]);
+    }, [sessionId, settling, t]);
 
     const handleFork = React.useCallback(async (messageId: string) => {
         if (!sessionId || forkingId || settling) return;

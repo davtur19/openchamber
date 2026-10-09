@@ -2554,13 +2554,42 @@ export async function dismissOpenFormsForSession(sessionId: string): Promise<boo
 /**
  * Revert to a specific user message.
  *
+ * Refreshes the stored message range first so the cut is computed from the
+ * full transcript, then runs the revert flow. A failure rolls the optimistic
+ * state back inside the flow and is surfaced here: every entry point (message
+ * actions, timeline, /undo) drops the rejection, so without this toast a
+ * failed revert looks like nothing happened.
+ */
+export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
+  try {
+    // Ensure the complete message range is present before applying the revert
+    // marker. Reverted UI is derived from session.revert + stored messages.
+    await refetchSessionMessages(sessionId)
+    await applyRevertToMessage(sessionId, messageId)
+  } catch (error) {
+    const { toast } = await import("sonner")
+    const { useI18nStore, formatMessage } = await import("@/lib/i18n/store")
+    const { dictionary } = useI18nStore.getState()
+    toast.error(formatMessage(dictionary, "chat.revert.toast.failed"), {
+      description: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
+}
+
+/**
+ * The revert flow itself.
+ *
  * 1. Abort if session is busy
  * 2. Extract text from the target message for prompt restoration
  * 3. Optimistically set revert marker so messages hide immediately
  * 4. Call the runtime revert endpoint and merge returned session
  * 5. Set pendingInputText so the reverted message text appears in the input
+ *
+ * On failure the optimistic marker and the input state roll back, then the
+ * error propagates to `revertToMessage`, which reports it to the user.
  */
-export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
+async function applyRevertToMessage(sessionId: string, messageId: string): Promise<void> {
   const { store, directory } = dirStoreForSession(sessionId)
   const state = store.getState()
 

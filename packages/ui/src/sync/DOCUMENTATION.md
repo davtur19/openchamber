@@ -210,6 +210,13 @@ fetch from restoring deleted messages. The remaining visible records stay in pla
 while the loader establishes fresh coverage. Their optimistic shadows remain
 until an authoritative snapshot confirms them.
 
+`revertToMessage` refreshes the stored message range before staging so the cut
+is computed from the full transcript. Staging sets the marker optimistically;
+an SDK failure rolls the marker and the composer restore back and raises an
+error toast before the rejection propagates, because every UI entry point
+drops it. The dock's commit and clear report their failures with the same
+toast.
+
 ## An interruption whose reason is `shutdown`
 
 `session.execution.interrupted` carries a reason. `user`, `inactivity` and

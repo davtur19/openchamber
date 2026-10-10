@@ -2343,6 +2343,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.revert.toast.redo': '다시 실행',
   'chat.revert.toast.restored': '모든 메시지 복원됨',
   'chat.revert.toast.failed': '되돌리기에 실패했습니다',
+  'chat.revert.toast.pending': '이 메시지는 아직 전송 중입니다',
+  'chat.revert.toast.pendingHint': '되돌리려면 먼저 메시지가 서버에 있어야 합니다. 도착하면 다시 시도하세요.',
   'chat.revert.toast.commitFailed': '되돌린 메시지를 제거하지 못했습니다',
   'chat.revert.toast.clearFailed': '되돌린 메시지를 복원하지 못했습니다',
   'chat.toast.opencodeRestartInterrupted.title': '채팅이 중단되었습니다',

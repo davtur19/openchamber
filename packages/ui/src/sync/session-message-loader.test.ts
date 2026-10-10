@@ -80,6 +80,25 @@ describe("SessionMessageLoader", () => {
     childStores.disposeAll()
   })
 
+  test("isOptimistic tracks a client-minted message until the server confirms it", () => {
+    const { childStores, loader } = createLoader(async () => response([]))
+    const target = { directory: "/optimistic-repo", sessionID: "session-pending" }
+    const record = createRecord(target.sessionID)
+
+    loader.optimisticAdd({ ...target, message: record.info, parts: record.parts })
+    expect(loader.isOptimistic({ ...target, messageID: record.info.id })).toBe(true)
+
+    loader.optimisticConfirm({ ...target, messageID: record.info.id })
+    expect(loader.isOptimistic({ ...target, messageID: record.info.id })).toBe(false)
+
+    // An unknown session or a message the server owns is never optimistic.
+    expect(loader.isOptimistic({ directory: "/elsewhere", sessionID: "session-unknown", messageID: "msg_x" })).toBe(false)
+    expect(loader.isOptimistic({ ...target, messageID: "msg_other" })).toBe(false)
+
+    loader.dispose()
+    childStores.disposeAll()
+  })
+
   test("creation supersedes an early history failure without losing the first prompt", async () => {
     const pending = deferred<MessagePage>()
     const { childStores, loader } = createLoader(() => pending.promise)

@@ -2307,6 +2307,8 @@ export const dict: Record<I18nKey, string> = {
   "chat.revert.toast.redo": "Refeito",
   "chat.revert.toast.restored": "Todas as mensagens restauradas",
   "chat.revert.toast.failed": "Falha ao reverter",
+  "chat.revert.toast.pending": "Esta mensagem ainda está sendo enviada",
+  "chat.revert.toast.pendingHint": "Reverter exige que a mensagem esteja primeiro no servidor. Tente de novo quando ela chegar.",
   "chat.revert.toast.commitFailed": "Não foi possível remover as mensagens revertidas",
   "chat.revert.toast.clearFailed": "Não foi possível restaurar as mensagens revertidas",
   "chat.toast.opencodeRestartInterrupted.title": "Conversa interrompida",

@@ -2316,6 +2316,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.revert.toast.redo': '已重做',
   'chat.revert.toast.restored': '已恢復全部訊息',
   'chat.revert.toast.failed': '收回失敗',
+  'chat.revert.toast.pending': '此訊息仍在傳送中',
+  'chat.revert.toast.pendingHint': '收回需要此訊息先到達伺服器。到達後再試一次。',
   'chat.revert.toast.commitFailed': '無法刪除已收回的訊息',
   'chat.revert.toast.clearFailed': '無法還原已收回的訊息',
   'chat.toast.opencodeRestartInterrupted.title': '聊天已中斷',

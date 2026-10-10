@@ -2341,6 +2341,8 @@ export const dict = {
   'chat.revert.toast.redo': 'Redone',
   'chat.revert.toast.restored': 'Restored all messages',
   'chat.revert.toast.failed': 'Revert failed',
+  'chat.revert.toast.pending': 'This message is still being sent',
+  'chat.revert.toast.pendingHint': 'Reverting needs the message on the server first. Try again once it arrives.',
   'chat.revert.toast.commitFailed': 'Could not remove the reverted messages',
   'chat.revert.toast.clearFailed': 'Could not restore the reverted messages',
   'chat.toast.opencodeRestartInterrupted.title': 'Chat interrupted',

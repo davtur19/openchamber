@@ -965,6 +965,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.revert.toast.redo': 'Ponowione',
   'chat.revert.toast.restored': 'Przywrócono wszystkie wiadomości',
   'chat.revert.toast.failed': 'Nie udało się cofnąć',
+  'chat.revert.toast.pending': 'Ta wiadomość jest wciąż wysyłana',
+  'chat.revert.toast.pendingHint': 'Cofnięcie wymaga, aby wiadomość była najpierw na serwerze. Spróbuj ponownie, gdy dotrze.',
   'chat.revert.toast.commitFailed': 'Nie udało się usunąć cofniętych wiadomości',
   'chat.revert.toast.clearFailed': 'Nie udało się przywrócić cofniętych wiadomości',
   'chat.toast.opencodeRestartInterrupted.title': 'Czat został przerwany',

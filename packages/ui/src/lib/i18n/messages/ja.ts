@@ -2337,6 +2337,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.revert.toast.redo': 'やり直しました',
   'chat.revert.toast.restored': 'すべてのメッセージを復元しました',
   'chat.revert.toast.failed': 'メッセージの取り消しに失敗しました',
+  'chat.revert.toast.pending': 'このメッセージはまだ送信中です',
+  'chat.revert.toast.pendingHint': '取り消しには、まずメッセージをサーバーに置く必要があります。届いたらやり直してください。',
   'chat.revert.toast.commitFailed': '取り消したメッセージを削除できませんでした',
   'chat.revert.toast.clearFailed': '取り消したメッセージを復元できませんでした',
   'chat.toast.opencodeRestartInterrupted.title': 'チャットが中断されました',

@@ -2341,6 +2341,8 @@ export const dict = {
   'chat.revert.toast.redo': 'Opnieuw uitgevoerd',
   'chat.revert.toast.restored': 'Alle berichten hersteld',
   'chat.revert.toast.failed': 'Terugdraaien mislukt',
+  'chat.revert.toast.pending': 'Dit bericht wordt nog verzonden',
+  'chat.revert.toast.pendingHint': 'Terugdraaien vereist dat het bericht eerst op de server staat. Probeer het opnieuw zodra het er is.',
   'chat.revert.toast.commitFailed': 'De teruggezette berichten konden niet worden verwijderd',
   'chat.revert.toast.clearFailed': 'De teruggezette berichten konden niet worden hersteld',
   'chat.toast.opencodeRestartInterrupted.title': 'Chat onderbroken',

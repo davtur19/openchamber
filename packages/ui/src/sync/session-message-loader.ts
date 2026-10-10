@@ -556,6 +556,17 @@ export class SessionMessageLoader {
     this.getEntry(target).optimistic.delete(input.messageID)
   }
 
+  /**
+   * True while a message is still a client-side record the server has not
+   * confirmed. An unconfirmed message cannot be a revert target: the stage
+   * endpoint looks it up in the server's own transcript and does not find it.
+   */
+  isOptimistic(input: SessionMessageTarget & { messageID: string }): boolean {
+    const target = this.normalizeTarget(input)
+    if (!target) return false
+    return this.entries.get(this.keyFor(target))?.optimistic.has(input.messageID) ?? false
+  }
+
   /** Revert commits preserve only the optimistic records still in the reduced transcript. */
   invalidateSession(target: SessionMessageTarget, preservedMessages: readonly Message[] = []): void {
     const normalized = this.normalizeTarget(target)

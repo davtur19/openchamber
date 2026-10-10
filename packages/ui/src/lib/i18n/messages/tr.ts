@@ -2204,6 +2204,8 @@ export const dict = {
   'chat.revert.toast.redo': 'Yinelendi',
   'chat.revert.toast.restored': 'Tüm mesajlar geri yüklendi',
   'chat.revert.toast.failed': 'Geri alınamadı',
+  'chat.revert.toast.pending': 'Bu mesaj hâlâ gönderiliyor',
+  'chat.revert.toast.pendingHint': 'Geri almak için mesajın önce sunucuda olması gerekir. Mesaj geldiğinde tekrar dene.',
   'chat.revert.toast.commitFailed': 'Geri alınan mesajlar kaldırılamadı',
   'chat.revert.toast.clearFailed': 'Geri alınan mesajlar geri yüklenemedi',
   'chat.toast.opencodeRestartInterrupted.title': 'Sohbet kesildi',

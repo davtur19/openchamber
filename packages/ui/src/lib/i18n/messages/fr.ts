@@ -2060,6 +2060,8 @@ export const dict = {
   'chat.revert.toast.redo': 'Refait',
   'chat.revert.toast.restored': 'Restauré tous les messages',
   'chat.revert.toast.failed': "Échec de l'annulation",
+  'chat.revert.toast.pending': "Ce message est encore en cours d'envoi",
+  'chat.revert.toast.pendingHint': "L'annulation nécessite que le message soit d'abord sur le serveur. Réessayez dès qu'il arrive.",
   'chat.revert.toast.commitFailed': "Impossible de supprimer les messages annulés",
   'chat.revert.toast.clearFailed': "Impossible de restaurer les messages annulés",
   'chat.toast.opencodeRestartInterrupted.title': 'Discussion interrompue',

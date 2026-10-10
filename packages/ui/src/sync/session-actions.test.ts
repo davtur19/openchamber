@@ -13,6 +13,7 @@ let permissionReplyError: unknown | null = null
 const sessionMessageRecords = new Map<string, Array<{ info: Message; parts: Part[] }>>()
 const sessionRecords = new Map<string, Session>()
 const failingRevertSessionIds = new Set<string>()
+const optimisticRevertMessageIds = new Set<string>()
 let sessionDeleteError: unknown | null = null
 let sessionForkResult: Session | null = null
 let sessionForkError: Error | null = null
@@ -297,6 +298,7 @@ mock.module("./session-message-loader", () => ({
     ensure: async () => {},
     refreshTail: async () => {},
     getSnapshot: () => ({ status: "ready" as const }),
+    isOptimistic: (input: { messageID: string }) => optimisticRevertMessageIds.has(input.messageID),
   }),
 }))
 
@@ -2555,6 +2557,7 @@ describe("revertToMessage passes session directory", () => {
     sessionMessageRecords.clear()
     sessionRecords.clear()
     failingRevertSessionIds.clear()
+    optimisticRevertMessageIds.clear()
     Object.assign(inputState, {
       pendingInputText: "previous draft",
       pendingInputMode: "replace",
@@ -2668,6 +2671,44 @@ describe("revertToMessage passes session directory", () => {
     expect(String(thrown)).toContain("session.revert.stage failed (500)")
     expect(errors.mock.calls.length).toBe(1)
     expect(errors.mock.calls[0]?.[0]).toBe("Revert failed")
+    errors.mockRestore()
+  })
+
+  test("refuses a revert on a message the server has not received yet", async () => {
+    const session = sessionFixture("session-a")
+    const targetMessage: Message = { id: "msg_2", sessionID: "session-a", role: "user", time: { created: 2 } }
+    const targetPart: Part = { id: "prt_2", sessionID: "session-a", messageID: "msg_2", type: "text", text: "queued prompt" }
+    const sessionStore = createStore({}, {
+      session: [session],
+      message: { "session-a": [targetMessage] },
+      part: { "msg_2": [targetPart] },
+      session_status: { "session-a": { type: "busy" } },
+    })
+    const childStores = createChildStores([["/test/project", sessionStore]])
+    optimisticRevertMessageIds.add("msg_2")
+
+    const { setActionRefs, revertToMessage } = await import("./session-actions")
+    setActionRefs(childStores, () => "/test/project")
+    const { toast } = await import("sonner")
+    const errors = spyOn(toast, "error").mockImplementation(() => "error-toast")
+
+    let thrown: unknown
+    try {
+      await revertToMessage("session-a", "msg_2")
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(String(thrown)).toContain("is still being sent")
+    // Refused before the marker, the network, and the session abort: the
+    // server has no such message to cut at, and a refusal must not kill the
+    // turn the user is waiting for.
+    expect(replyCalls.filter((call) => call.method === "session.revert.stage")).toHaveLength(0)
+    expect(replyCalls.filter((call) => call.method === "session.abort")).toHaveLength(0)
+    expect((sessionStore.getState().session[0]).revert).toBe(undefined)
+    expect(errors.mock.calls.length).toBe(1)
+    expect(errors.mock.calls[0]?.[0]).toBe("This message is still being sent")
+    expect(errors.mock.calls[0]?.[1]).toMatchObject({ description: "Reverting needs the message on the server first. Try again once it arrives." })
     errors.mockRestore()
   })
 

@@ -2096,6 +2096,8 @@ export const dict = {
   'chat.revert.toast.redo': 'Wiederholt',
   'chat.revert.toast.restored': 'Alle Nachrichten wiederhergestellt',
   'chat.revert.toast.failed': 'Zurücksetzen fehlgeschlagen',
+  'chat.revert.toast.pending': 'Diese Nachricht wird noch gesendet',
+  'chat.revert.toast.pendingHint': 'Für das Zurücksetzen muss die Nachricht zuerst auf dem Server sein. Versuche es erneut, sobald sie angekommen ist.',
   'chat.revert.toast.commitFailed': 'Die zurückgesetzten Nachrichten konnten nicht entfernt werden',
   'chat.revert.toast.clearFailed': 'Die zurückgesetzten Nachrichten konnten nicht wiederhergestellt werden',
   'chat.toast.opencodeRestartInterrupted.title': 'Chat unterbrochen',

@@ -211,11 +211,13 @@ while the loader establishes fresh coverage. Their optimistic shadows remain
 until an authoritative snapshot confirms them.
 
 `revertToMessage` refreshes the stored message range before staging so the cut
-is computed from the full transcript. Staging sets the marker optimistically;
-an SDK failure rolls the marker and the composer restore back and raises an
-error toast before the rejection propagates, because every UI entry point
-drops it. The dock's commit and clear report their failures with the same
-toast.
+is computed from the full transcript. A target still in flight — an optimistic
+record the server has not confirmed — is refused before staging, before the
+session abort, with its own message: there is nothing in the server's
+transcript to cut at yet. Staging sets the marker optimistically; an SDK
+failure rolls the marker and the composer restore back and raises an error
+toast before the rejection propagates, because every UI entry point drops
+it. The dock's commit and clear report their failures with the same toast.
 
 ## An interruption whose reason is `shutdown`
 

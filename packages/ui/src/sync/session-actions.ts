@@ -2552,6 +2552,17 @@ export async function dismissOpenFormsForSession(sessionId: string): Promise<boo
 // ---------------------------------------------------------------------------
 
 /**
+ * The revert target is still a client-side record: the send has not landed on
+ * the server, so there is nothing to cut at yet.
+ */
+class RevertPendingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "RevertPendingError"
+  }
+}
+
+/**
  * Revert to a specific user message.
  *
  * Refreshes the stored message range first so the cut is computed from the
@@ -2570,9 +2581,15 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
     const { toast } = await import("sonner")
     const { useI18nStore, formatMessage } = await import("@/lib/i18n/store")
     const { dictionary } = useI18nStore.getState()
-    toast.error(formatMessage(dictionary, "chat.revert.toast.failed"), {
-      description: error instanceof Error ? error.message : String(error),
-    })
+    if (error instanceof RevertPendingError) {
+      toast.error(formatMessage(dictionary, "chat.revert.toast.pending"), {
+        description: formatMessage(dictionary, "chat.revert.toast.pendingHint"),
+      })
+    } else {
+      toast.error(formatMessage(dictionary, "chat.revert.toast.failed"), {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
     throw error
   }
 }
@@ -2597,6 +2614,14 @@ async function applyRevertToMessage(sessionId: string, messageId: string): Promi
   const targetMessage = localTarget
     ?? (await fetchSessionMessages(sessionId, directory)).find((message) => message.id === messageId)
   if (!targetMessage) throw new Error(`Cannot revert session: message ${messageId} was not found`)
+
+  // An unconfirmed message exists only here: the server writes its transcript
+  // row when the send lands. Staging it now would fail on the server's lookup
+  // and roll the marker back, so refuse it with the reason instead. The loader
+  // keys its records by directory, so ask only when one is known.
+  if (directory && getImperativeSessionMessageLoader()?.isOptimistic({ sessionID: sessionId, directory, messageID: messageId })) {
+    throw new RevertPendingError(`Cannot revert session: message ${messageId} is still being sent`)
+  }
 
   // Abort if busy before mutating session state
   const status = state.session_status[sessionId]

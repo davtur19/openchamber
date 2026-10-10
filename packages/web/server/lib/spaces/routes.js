@@ -39,6 +39,9 @@ const STATUS_BY_CODE = new Map([
   ['network_is_open', 409],
   ['too_many_domains', 409],
   ['secret_source_missing', 409],
+  ['login_not_found', 409],
+  ['login_not_supported', 409],
+  ['login_expired', 409],
   ['space_record_unreadable', 409],
   ['space_preparing', 409],
   ['space_creation_failed', 409],
@@ -240,6 +243,11 @@ export function registerSpaceRoutes(app, { getJourney, getPlaces = () => [], rea
   app.delete(`${SPACES_ROUTE}/:id`, withJourney(async (journey, req, res) => {
     // `?unsavedChats=delete` is the user's "Delete anyway" after chats could not be saved.
     res.json(await journey.removeSpace(spaceIdOf(req), { allowUnsaved: req.query?.unsavedChats === 'delete' }));
+  }));
+
+  // The host's browser logins a space can be given, without their tokens, for the grant dialogs.
+  app.get(`${SPACES_ROUTE}/logins`, withJourney(async (journey, _req, res) => {
+    res.json(await journey.readHostLogins());
   }));
 
   // A grant for a running space; the key in the body goes to the gatekeeper and nowhere else.

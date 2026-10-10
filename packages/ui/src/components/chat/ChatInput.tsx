@@ -17,6 +17,7 @@ import { useParallelComposer } from './composer/parallel/useParallelComposer';
 import { ParallelComposerStrip } from './composer/parallel/ParallelComposerStrip';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
+    ATTACHMENT_ACCEPT,
     getUnsupportedAttachmentInputs,
     isDocumentAttachmentFilename,
     type AttachmentInputModality,
@@ -4530,7 +4531,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             variant unmounted, and a variant swap while the OS file picker was
             open detached the clicked input — its change event was silently
             lost and the picked files never attached. */}
-<AttachmentPickerInput ref={fileInputRef} onChange={handleLocalFileSelect} />
+        <AttachmentPickerInput ref={fileInputRef} onChange={handleLocalFileSelect} />
 
         {/* Mobile attachment sheet: replaces the dropdown (which stole focus and
             dismissed the keyboard) and leaves room for more actions later. */}

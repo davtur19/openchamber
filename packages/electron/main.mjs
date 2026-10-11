@@ -15,6 +15,7 @@ import updaterPkg from 'electron-updater';
 import { ElectronSshManager } from './ssh-manager.mjs';
 import { replaceFileWithRetry } from './windows-file-replace.mjs';
 import { createTrayController } from './tray.mjs';
+import { applyDevDockIdentity, applyDockBadge } from './dev-dock-identity.mjs';
 import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
 import { stopEmbeddedServer } from './server-shutdown.mjs';
 import { resolveStartupUrlProbePlan } from './startup-url-selection.mjs';
@@ -1109,6 +1110,9 @@ const resolveBrowserPanelContents = (rawId) => {
   }
   return target;
 };
+
+/** Panel pages the agent has worked in; their debugger session holds focus emulation. */
+const focusEmulatedPanelContents = new WeakSet();
 
 /**
  * The sessions of the browser panel: the user's persistent one, and one per
@@ -4516,11 +4520,40 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         ? { features: [] }
         : { features: [{ name: 'prefers-color-scheme', value: scheme }] });
 
-      if (scheme === 'system') {
+      if (scheme === 'system' && !focusEmulatedPanelContents.has(target)) {
         // Nothing left to emulate; give the session back so DevTools can attach.
         try { target.debugger.detach(); } catch { /* already gone */ }
       }
       return { scheme };
+    }
+
+    /**
+     * Keeps a page the agent works in believing it has focus.
+     *
+     * The panel hands keyboard focus back to the user after every agent click,
+     * and a page that sees itself blurred closes what the click opened: custom
+     * selects shut on blur. With focus emulated the page keeps its own focus
+     * while the user's keystrokes still go to the app. Sent before every
+     * focusing action, so a page that navigated since gets it again; emulation
+     * lives in the debugger session, which therefore stays attached.
+     */
+    case 'desktop_browser_keep_page_focused': {
+      const target = resolveBrowserPanelContents(args.webContentsId);
+      if (!target.debugger.isAttached()) {
+        try {
+          target.debugger.attach('1.3');
+        } catch {
+          // DevTools holds the session; the page then behaves as it always did.
+          return { focused: false };
+        }
+      }
+      await target.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      if (!focusEmulatedPanelContents.has(target)) {
+        focusEmulatedPanelContents.add(target);
+        // DevTools taking the session ends the emulation with it.
+        target.debugger.once('detach', () => focusEmulatedPanelContents.delete(target));
+      }
+      return { focused: true };
     }
 
     /**
@@ -4726,13 +4759,12 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         }
       }
       // Dock badge: count of chats with unseen activity (0 = cleared, also when
-      // the user disabled the badge). setBadgeCount drives the macOS dock badge.
+      // the user disabled the badge). A dev copy on a numbered branch shows
+      // that number instead (dev-dock-identity.mjs).
       try {
         const rawCount = args && typeof args.dockBadgeCount === 'number' ? args.dockBadgeCount : 0;
         const badgeCount = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
-        if (typeof app.setBadgeCount === 'function') {
-          app.setBadgeCount(badgeCount);
-        }
+        applyDockBadge(app, badgeCount);
       } catch (error) {
         log.warn('[electron] dock badge update failed', error);
       }
@@ -6169,6 +6201,7 @@ app.whenReady().then(async () => {
 
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(buildMacMenu());
+    void applyDevDockIdentity({ app, electronDir: __dirname, log });
   } else {
     Menu.setApplicationMenu(buildAutoHiddenMenu());
   }

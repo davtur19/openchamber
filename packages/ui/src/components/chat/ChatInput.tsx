@@ -18,7 +18,6 @@ import { useParallelComposer } from './composer/parallel/useParallelComposer';
 import { ParallelComposerStrip } from './composer/parallel/ParallelComposerStrip';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
-    ATTACHMENT_ACCEPT,
     getUnsupportedAttachmentInputs,
     isReadOnSendMentionFilename,
     type AttachmentInputModality,
@@ -392,7 +391,6 @@ const AttachmentPickerInput = React.memo(function AttachmentPickerInput({ ref, o
             multiple
             className="hidden"
             onChange={onChange}
-            accept={ATTACHMENT_ACCEPT}
         />
     );
 });

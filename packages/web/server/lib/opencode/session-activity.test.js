@@ -20,8 +20,22 @@ const createProbe = (sessions, { failureId, timeoutMs = 10_000, delayMs = 0 } = 
   return { probe, reads, signals };
 };
 
-describe('queue descendant activity', () => {
+describe('subagent activity from active sessions', () => {
   const running = { type: 'running' };
+
+  it('answers from active sessions, never the parent\'s child history', async () => {
+    // A parent with 1,244 child sessions once answered `null` here: the walk
+    // over its children stopped after 400 and called the rest unknown, so the
+    // goal waited forever. The history is simply not read any more.
+    const { probe, reads } = createProbe({});
+    expect(await probe.hasWorkingDescendants('root', {})).toBe(false);
+    expect(reads).toEqual([]);
+
+    // One of those children running is still found through its own lineage.
+    const { probe: withChild, reads: childReads } = createProbe({ child_900: { id: 'child_900', parentID: 'root' } });
+    expect(await withChild.hasWorkingDescendants('root', { child_900: running })).toBe(true);
+    expect(childReads).toEqual(['child_900']);
+  });
 
   it('detects a live grandchild through an idle intermediate session', async () => {
     const { probe, reads } = createProbe({ child: { id: 'child', parentID: 'root' }, grandchild: { id: 'grandchild', parentID: 'child' } });

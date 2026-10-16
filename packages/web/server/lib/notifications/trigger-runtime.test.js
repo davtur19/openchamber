@@ -89,11 +89,13 @@ describe('ready notification on v2 step events', () => {
 });
 
 describe('ready notification while background subagents run', () => {
-  const stubOpenCode = ({ active, children }) => {
+  const stubOpenCode = ({ active, lineage }) => {
     vi.stubGlobal('fetch', vi.fn(async (input) => {
       const url = new URL(String(input));
       if (url.pathname === '/api/session/active') return Response.json({ data: active() });
-      if (url.pathname === '/api/session') return Response.json({ data: children, cursor: {} });
+      // An active session's own record carries its parent, as the walk reads it.
+      const id = url.pathname.startsWith('/api/session/') ? url.pathname.slice('/api/session/'.length) : null;
+      if (id && lineage[id]) return Response.json({ data: { id, parentID: lineage[id] } });
       return Response.json({});
     }));
   };
@@ -101,7 +103,7 @@ describe('ready notification while background subagents run', () => {
   it('stays silent on the pause and announces the real turn end', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     let active = { ses_child: { type: 'running' } };
-    stubOpenCode({ active: () => active, children: [{ id: 'ses_child', parentID: 'ses_1' }] });
+    stubOpenCode({ active: () => active, lineage: { ses_child: 'ses_1' } });
     const { runtime, emitDesktopNotification } = makeRuntime();
 
     await runtime.maybeSendPushForTrigger(stepStarted('ses_1', 'msg_1'));

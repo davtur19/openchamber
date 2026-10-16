@@ -31,12 +31,13 @@ export const createNotificationTriggerRuntime = (deps) => {
 
   // A parent goes idle while a background subagent still works; OpenCode then
   // hands the result back and the parent runs again. That first idle is a
-  // pause, so it announces nothing. When the check cannot be made, the idle is
+  // pause, so it announces nothing. The check walks the active sessions'
+  // lineage (nested subagents included); when it cannot be made, the idle is
   // announced as before: a missed "ready" is worse than an early one.
   const isPausedForSubagents = async (sessionId) => {
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) return false;
-    return (await activityProbe.hasWorkingChildren(sessionId, statuses)) === true;
+    return (await activityProbe.hasWorkingDescendants(sessionId, statuses)) === true;
   };
   const setGetIsSessionAutoAccepting = (resolver) => {
     getIsSessionAutoAccepting = typeof resolver === 'function' ? resolver : undefined;

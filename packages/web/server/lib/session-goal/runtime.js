@@ -687,10 +687,12 @@ export const createSessionGoalRuntime = ({
     // Parent idle does not imply the whole task is quiescent: a background
     // subagent runs in a child session while its parent stays idle. Re-read
     // authoritative live status after the quiet window. If the parent resumed,
-    // its next idle event will arm a fresh tick. If a child is still working,
-    // recheck after another quiet window: OpenCode normally runs the parent
-    // again when the child finishes, but a missed parent idle event must not
-    // strand the goal.
+    // its next idle event will arm a fresh tick. If a subagent session is
+    // still working (nested ones included), recheck after another quiet
+    // window: OpenCode normally runs the parent again when the subagent
+    // finishes, but a missed parent idle event must not strand the goal. The
+    // check reads only the live active sessions and their lineage, never the
+    // parent's child history, which can grow to thousands of sessions.
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) {
       armTimer(sessionId, directory, idleQuietMs);
@@ -698,12 +700,12 @@ export const createSessionGoalRuntime = ({
     }
     if (isWorkingStatus(statuses[sessionId])) return;
 
-    const childrenWorking = await activityProbe.hasWorkingChildren(sessionId, statuses);
-    if (childrenWorking === null) {
+    const subagentsWorking = await activityProbe.hasWorkingDescendants(sessionId, statuses);
+    if (subagentsWorking === null) {
       armTimer(sessionId, directory, idleQuietMs);
       return;
     }
-    if (childrenWorking) {
+    if (subagentsWorking) {
       armTimer(sessionId, directory, idleQuietMs);
       return;
     }

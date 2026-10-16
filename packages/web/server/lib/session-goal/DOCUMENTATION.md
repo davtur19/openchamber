@@ -92,13 +92,15 @@ before touching the filesystem). Rationale: metadata rides every
 3. On fire (`tick`), gated by the `sessionGoalEnabled` setting:
    - fetch session (skip sub-agent sessions), require an `active` goal;
    - authoritative live-activity check after the quiet window: re-read
-     `/api/session/active`, bail if the parent resumed; then list the
-      parent's subagent sessions through `GET /api/session?parentID=` (cursor
-      paged) and bail while any of them is active. The loop rechecks after
-      another quiet window so a missed parent idle event cannot strand the
-      goal when the child finishes. A status or children fetch failure is
-      unknown, not empty, so it skips the audit and retries after another quiet
-      window;
+     `/api/session/active`, bail if the parent resumed; then walk each active
+     session's parent chain (nested subagents included, at most 8 links) and
+     bail while any of them sits under this session. The parent's child
+     history is never listed: it can grow to thousands of sessions and a page
+     walk stops answering past its cap, stranding the goal. The loop rechecks
+     after another quiet window so a missed parent idle event cannot strand
+     the goal when the child finishes. A status or lineage fetch failure is
+     unknown, not empty, so it skips the audit and retries after another quiet
+     window;
      both reads live in `../opencode/session-activity.js`, shared with the
      notification runtime;
    - messages come from `/api/session/:id/message` as v2's flat records

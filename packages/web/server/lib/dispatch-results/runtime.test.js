@@ -45,7 +45,6 @@ const user = (created) => ({ type: 'user', id: `msg_u${created}`, text: 'go', ti
 const createOpenCode = () => {
   const state = {
     active: {},
-    children: {},
     sessions: { ses_child: { id: 'ses_child', title: 'Fix the toolbar' } },
     records: { ses_child: [] },
     synthetic: [],
@@ -53,12 +52,8 @@ const createOpenCode = () => {
     seenIds: new Set(),
   };
   const fetchImpl = vi.fn(async (url, init = {}) => {
-    const { pathname, searchParams } = new URL(url);
+    const { pathname } = new URL(url);
     if (pathname === '/api/session/active') return json({ data: state.active });
-    if (pathname === '/api/session') {
-      const parentID = searchParams.get('parentID');
-      return json({ data: (state.children[parentID] ?? []).map((id) => ({ id })), cursor: {} });
-    }
     const synthetic = pathname.match(/^\/api\/session\/([^/]+)\/synthetic$/);
     if (synthetic && init.method === 'POST') {
       const status = state.syntheticStatus.shift();
@@ -213,7 +208,7 @@ describe('dispatch results runtime', () => {
   it('waits for the dispatched session\'s subagents before calling the turn over', async () => {
     const { runtime, openCode } = await createRuntime();
     openCode.state.records.ses_child.push(user(11), assistant('Waiting on a subagent', 12), idle('succeeded', 13));
-    openCode.state.children.ses_child = ['ses_grandchild'];
+    openCode.state.sessions.ses_grandchild = { id: 'ses_grandchild', parentID: 'ses_child' };
     openCode.state.active.ses_grandchild = { type: 'running' };
     await runtime.register({ parentSessionId: 'ses_parent', sessionId: 'ses_child', dispatchedAt: 10 });
     await settle();

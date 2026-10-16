@@ -16,7 +16,8 @@ import { createSessionGoalRuntime, normalizeMaxAutoTurns } from './runtime.js';
  *
  * The previous suite drove the whole audit loop against a fake v1 OpenCode; it
  * is gone rather than rewritten because every route and shape it asserted on
- * belongs to v1. Subagents come from `GET /api/session?parentID=` now.
+ * belongs to v1. Whether a subagent still works is decided from
+ * `/api/session/active` plus each active session's lineage now.
  */
 
 const SESSION_ID = 'ses_parent';
@@ -75,7 +76,7 @@ afterEach(() => {
  * `content[]`, `model`, `finish`, `tokens`), `{ location, data }` envelopes,
  * `/api/session/active` for busy state, and the three continuation calls.
  */
-const v2OpenCode = ({ messages, active = {}, childPages = [[]], childrenStatus = 200 }) => {
+const v2OpenCode = ({ messages, active = {}, lineage = {}, lineageStatus = 200 }) => {
   const calls = [];
   const json = (data, status = 200) => new Response(JSON.stringify({ location: { directory: '/repo' }, data }), {
     status,
@@ -86,17 +87,13 @@ const v2OpenCode = ({ messages, active = {}, childPages = [[]], childrenStatus =
     calls.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null });
     // Real shape: `{ data }` without a `location`, unlike directory-scoped routes.
     if (url.pathname === '/api/session/active') return Response.json({ data: active });
-    if (url.pathname === '/api/session') {
-      // Children of the parent, cursor paged: the first page is selected by
-      // `parentID`, later ones by the cursor alone.
-      const index = url.searchParams.has('cursor') ? Number(url.searchParams.get('cursor').replace('page-', '')) : 0;
-      if (index === 0 && url.searchParams.get('parentID') !== SESSION_ID) return json({ data: [], cursor: {} });
-      const data = childPages[index] ?? [];
-      const next = index + 1 < childPages.length ? { next: `page-${index + 1}` } : {};
-      return json({ data, cursor: next }, childrenStatus);
-    }
     if (url.pathname.endsWith('/message')) return json({ data: [...messages].reverse(), cursor: null });
     if (url.pathname === `/api/session/${SESSION_ID}`) return json({ id: SESSION_ID, location: { directory: '/repo' } });
+    if (url.pathname.startsWith('/api/session/')) {
+      // Lineage of an active session (`id -> parentID`), as the walk reads it.
+      const id = decodeURIComponent(url.pathname.slice('/api/session/'.length));
+      if (id in lineage) return json({ id, parentID: lineage[id] ?? null }, lineageStatus);
+    }
     return json({});
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -309,15 +306,13 @@ describe('session goal tick on v2 messages', () => {
 });
 
 describe('session goal tick and subagents', () => {
-  const child = (id) => ({ id, parentID: SESSION_ID, time: { updated: 1 } });
-
-  it('waits while a subagent listed on a later page is still working', async () => {
+  it('waits while an active subagent session is still working', async () => {
     quiet();
     const generate = vi.fn();
     const server = v2OpenCode({
       messages: [assistantRecord()],
       active: { ses_child_2: { status: 'running' } },
-      childPages: [[child('ses_child_1')], [child('ses_child_2')]],
+      lineage: { ses_child_2: SESSION_ID },
     });
     const { runtime } = makeRuntime({
       ...wired({ openchamber: { goal: activeGoal() } }),
@@ -325,8 +320,10 @@ describe('session goal tick and subagents', () => {
       idleQuietMs: 1_000,
     });
     await runTick(runtime);
-    const listCalls = server.calls.filter((call) => call.path === '/api/session');
-    expect(listCalls.map((call) => call.query.parentID ?? call.query.cursor)).toEqual([SESSION_ID, 'page-1']);
+    // The wait comes from the subagent's own lineage record: the parent's
+    // child history is never listed.
+    expect(server.calls.some((call) => call.path === '/api/session/ses_child_2')).toBe(true);
+    expect(server.calls.some((call) => call.path === '/api/session')).toBe(false);
     expect(server.calls.some((call) => call.method === 'POST')).toBe(false);
     expect(generate).not.toHaveBeenCalled();
   });
@@ -337,7 +334,7 @@ describe('session goal tick and subagents', () => {
     const server = v2OpenCode({
       messages: [assistantRecord()],
       active,
-      childPages: [[child('ses_child_1')]],
+      lineage: { ses_child_1: SESSION_ID },
     });
     const seam = wired({ openchamber: { goal: activeGoal() } });
     const generate = vi.fn(async () => ({ text: smallModelSays({ all_done: true }) }));
@@ -349,7 +346,7 @@ describe('session goal tick and subagents', () => {
 
     await runtime.notifyGoalChanged(SESSION_ID, '/repo', { openchamber: { goal: activeGoal() } });
     await vi.waitFor(() => {
-      expect(server.calls.some((call) => call.path === '/api/session' && call.query.parentID === SESSION_ID)).toBe(true);
+      expect(server.calls.some((call) => call.path === '/api/session/ses_child_1')).toBe(true);
     });
     expect(generate).not.toHaveBeenCalled();
 
@@ -361,12 +358,9 @@ describe('session goal tick and subagents', () => {
     });
   });
 
-  it('audits once every subagent is idle', async () => {
+  it('audits when nothing is running, without listing the child history', async () => {
     quiet();
-    const server = v2OpenCode({
-      messages: [assistantRecord()],
-      childPages: [[child('ses_child_1')]],
-    });
+    const server = v2OpenCode({ messages: [assistantRecord()] });
     const seam = wired({ openchamber: { goal: activeGoal() } });
     const { runtime } = makeRuntime({
       ...seam,
@@ -376,14 +370,19 @@ describe('session goal tick and subagents', () => {
       }),
     });
     await runTick(runtime);
-    expect(server.calls.some((call) => call.path === '/api/session' && call.query.parentID === SESSION_ID)).toBe(true);
+    expect(server.calls.some((call) => call.path === '/api/session')).toBe(false);
     expect(seam.persistSessionGoal).toHaveBeenCalled();
   });
 
-  it('does not treat an unreadable children list as "no subagents"', async () => {
+  it('does not treat an unreadable lineage as "no subagents"', async () => {
     quiet();
     const generate = vi.fn();
-    const server = v2OpenCode({ messages: [assistantRecord()], childrenStatus: 500 });
+    const server = v2OpenCode({
+      messages: [assistantRecord()],
+      active: { ses_child_1: { status: 'running' } },
+      lineage: { ses_child_1: SESSION_ID },
+      lineageStatus: 500,
+    });
     const seam = wired({ openchamber: { goal: activeGoal() } });
     const { runtime } = makeRuntime({
       ...seam,
@@ -391,7 +390,7 @@ describe('session goal tick and subagents', () => {
       idleQuietMs: 1_000,
     });
     await runTick(runtime);
-    expect(server.calls.some((call) => call.path === '/api/session')).toBe(true);
+    expect(server.calls.some((call) => call.path === '/api/session/ses_child_1')).toBe(true);
     expect(server.calls.some((call) => call.path.endsWith('/message'))).toBe(false);
     expect(server.calls.some((call) => call.method === 'POST')).toBe(false);
     expect(generate).not.toHaveBeenCalled();
@@ -668,11 +667,6 @@ describe('session goal transient vs permanent failures', () => {
         return json({ id: SESSION_ID, location: { directory: '/repo' } });
       }
       if (pathname === '/api/session/active') return json({});
-      if (pathname === '/api/session') {
-        // Children lookup: no subagents in this harness.
-        if (url.searchParams.get('parentID') === SESSION_ID) return json({ data: [], cursor: {} });
-        return json({ data: [], cursor: {} });
-      }
       if (pathname === `/api/session/${SESSION_ID}/message`) {
         messageFetches += 1;
         return json({ data: messagesForFetch(messageFetches), cursor: null });

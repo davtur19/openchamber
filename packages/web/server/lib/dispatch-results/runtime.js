@@ -311,9 +311,10 @@ export function createDispatchResultsRuntime({
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) return null;
     if (statuses[sessionId]) return { kind: 'running' };
-    // A turn is over only when its subagents are done too: the session idles
-    // while a background subagent works and runs again on its result.
-    const subagentsWorking = await activityProbe.hasWorkingChildren(sessionId, statuses);
+    // A turn is over only when its subagents are done too (nested ones
+    // included): the session idles while a background subagent works and runs
+    // again on its result.
+    const subagentsWorking = await activityProbe.hasWorkingDescendants(sessionId, statuses);
     if (subagentsWorking === null) return null;
     if (subagentsWorking) return { kind: 'subagents' };
     const encoded = encodeURIComponent(sessionId);

@@ -5,7 +5,9 @@
  * child session. When the child finishes, OpenCode delivers its result to the
  * parent, which runs again and goes idle a second time. So the parent's first
  * idle is a pause, not the end of the turn: anything that treats idle as
- * "done" (goal audits, ready notifications) has to check the children too.
+ * "done" (goal audits, ready notifications) has to check the running subagent
+ * sessions too — from the live active list, never from the parent's child
+ * history, which can grow to thousands of sessions.
  *
  * Every read answers `null` when OpenCode could not be asked: "could not look"
  * must never pass for "nothing is running".
@@ -14,8 +16,6 @@
 import { unwrapOpenCodeResponse } from './response-envelope.js';
 import { z } from 'zod';
 
-const CHILDREN_PAGE_SIZE = 50;
-const CHILDREN_MAX_PAGES = 8;
 const MAX_SUBAGENT_DEPTH = 8;
 const sessionLineageSchema = z.object({ id: z.string().min(1), parentID: z.string().min(1).nullish() });
 
@@ -44,43 +44,14 @@ export const createSessionActivityProbe = ({ buildOpenCodeUrl, getOpenCodeAuthHe
   };
 
   /**
-   * v2 has no `/session/{id}/children`; `GET /api/session?parentID=` lists a
-   * parent's subagent sessions, newest first, in cursor pages. Later pages
-   * carry the filter inside the cursor, so only the cursor and the limit
-   * travel. A parent with more subagents than this walks is unknown (`null`).
-   */
-  const fetchChildSessionIds = async (sessionId) => {
-    const ids = [];
-    const seenCursors = new Set();
-    let cursor;
-    for (let pageNumber = 0; pageNumber < CHILDREN_MAX_PAGES; pageNumber += 1) {
-      const page = await openCodeGet('/api/session', {
-        limit: String(CHILDREN_PAGE_SIZE),
-        ...(cursor ? { cursor } : { parentID: sessionId }),
-      }).catch(() => null);
-      if (!Array.isArray(page?.data)) return null;
-      for (const child of page.data) {
-        if (typeof child?.id === 'string' && child.id) ids.push(child.id);
-      }
-      const next = page.cursor?.next;
-      if (!next || page.data.length === 0 || seenCursors.has(next)) return ids;
-      seenCursors.add(next);
-      cursor = next;
-    }
-    return null;
-  };
-
-  /** True when a subagent of the session is still running; null when unknown. */
-  const hasWorkingChildren = async (sessionId, statuses) => {
-    const children = await fetchChildSessionIds(sessionId);
-    if (!children) return null;
-    return children.some((id) => Boolean(statuses[id]));
-  };
-
-  /**
-   * Queue delivery waits for running descendants, including nested subagents.
-   * A chain deeper than `MAX_SUBAGENT_DEPTH` counts as unrelated, as in the
-   * UI's ancestor walk, so a deep tree elsewhere cannot hold every queue.
+   * True when a subagent of the session is still running — nested ones
+   * included, because an intermediate session idles while its own subagent
+   * works — and null when unknown. The walk starts from the sessions OpenCode
+   * reports as active and follows each one's parent chain, so a parent whose
+   * child history is too long to list (thousands of sessions) still gets an
+   * answer instead of `null`. A chain deeper than `MAX_SUBAGENT_DEPTH` counts
+   * as unrelated, as in the UI's ancestor walk, so a deep tree elsewhere
+   * cannot hold every consumer. Unreadable lineage and cycles are unknown.
    */
   const hasWorkingDescendants = async (sessionId, statuses) => {
     const parents = new Map();
@@ -114,5 +85,5 @@ export const createSessionActivityProbe = ({ buildOpenCodeUrl, getOpenCodeAuthHe
     return unknown ? null : false;
   };
 
-  return { fetchActiveSessionStatuses, fetchChildSessionIds, hasWorkingChildren, hasWorkingDescendants };
+  return { fetchActiveSessionStatuses, hasWorkingDescendants };
 };

@@ -54,6 +54,7 @@ const SEARCH_TARGET_TABS = new Map<string, ChatSettingsTab>([
   ['chat.session-goal-checker', 'assistance'],
   ['chat.session-goal-max-turns', 'assistance'],
   ['chat.session-goal-budget', 'assistance'],
+  ['chat.session-goal-char-limit', 'assistance'],
 ]);
 
 export const chatSettingsTabForSearchTarget = (id: string): ChatSettingsTab | null => SEARCH_TARGET_TABS.get(id) ?? null;

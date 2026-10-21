@@ -1,17 +1,23 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { Window } from 'happy-dom';
 
 import { createScrollSpy } from './scrollSpy';
+
+const originalGlobals = {
+    document: globalThis.document,
+    DOMRect: globalThis.DOMRect,
+};
 
 const createHarness = (scroll: { scrollHeight: number; scrollTop: number; clientHeight: number }) => {
     const frames: FrameRequestCallback[] = [];
     const activeTurnIds: string[] = [];
-    // SAFETY: the stub sets only members HTMLDivElement already carries (the
-    // scroll metrics and getBoundingClientRect), and createScrollSpy reads
-    // nothing else off the container.
-    const container = {
-        ...scroll,
-        getBoundingClientRect: () => ({ top: 0 }),
-    } as HTMLDivElement;
+    const container = document.createElement('div');
+    Object.defineProperties(container, {
+        scrollHeight: { value: scroll.scrollHeight },
+        clientHeight: { value: scroll.clientHeight },
+    });
+    container.scrollTop = scroll.scrollTop;
+    container.getBoundingClientRect = () => new DOMRect();
     const spy = createScrollSpy({
         onActive: (turnId) => activeTurnIds.push(turnId),
         raf: (callback) => {
@@ -34,13 +40,25 @@ const createHarness = (scroll: { scrollHeight: number; scrollTop: number; client
 };
 
 /** A turn whose top edge sits this many pixels below the container's top. */
-// SAFETY: the stub provides the one member the spy measures turns by,
-// getBoundingClientRect, which HTMLElement already declares.
-const turnAt = (viewportTop: number): HTMLElement => ({
-    getBoundingClientRect: () => ({ top: viewportTop }),
-}) as HTMLElement;
+const turnAt = (viewportTop: number): HTMLElement => {
+    const element = document.createElement('div');
+    element.getBoundingClientRect = () => new DOMRect(0, viewportTop);
+    return element;
+};
 
 describe('createScrollSpy', () => {
+    beforeEach(() => {
+        const windowInstance = new Window();
+        Object.assign(globalThis, {
+            document: windowInstance.document,
+            DOMRect: windowInstance.DOMRect,
+        });
+    });
+
+    afterEach(() => {
+        Object.assign(globalThis, originalGlobals);
+    });
+
     test('activates the final turn throughout the chat bottom spacer', () => {
         const { container, spy, activeTurnIds, drainFrames } = createHarness({
             scrollHeight: 1_000,

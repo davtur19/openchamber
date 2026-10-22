@@ -4078,6 +4078,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const queueRow = !isBtwActive && !newSessionDraftOpen ? (
         <QueuedMessagesStrip
             target={parentMessageQueueTarget}
+            composerAgentName={currentAgentName}
             onEditMessage={handleQueuedMessageEdit}
             onSendMessage={handleQueuedMessageSend}
         />

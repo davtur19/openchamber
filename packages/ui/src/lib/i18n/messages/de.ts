@@ -15,10 +15,12 @@ import { sessionNoticesI18n } from './session-notices.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { sessionWarmingI18n } from './session-warming.i18n';
+import { heapSnapshotI18n } from './heap-snapshot.i18n';
 import { overviewI18n } from './overview.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
 import { stacksI18n } from './stacks.i18n';
+import { changeReviewI18n } from './change-review.i18n';
 import { projectActionsI18n } from './project-actions.i18n';
 import { gitIdentityEditorI18n } from './git-identity-editor.i18n';
 import { environmentI18n } from './environment.i18n';
@@ -27,6 +29,7 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
 import { diffFindI18n } from './diff-find.i18n';
+import { guestStatusViewI18n } from './guest-status-view.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode ist in OpenChamber enthalten. Aktualisieren Sie OpenChamber, um OpenCode v2 zu erhalten.",
@@ -57,6 +60,7 @@ export const dict = {
   'commitComparison.mode': 'Commit',
   'pullRequestComparison.select': 'Pull Request auswählen',
   'pullRequestComparison.pickAbove': 'Wähle oben einen Pull Request',
+  'pullRequestComparison.diffUnavailable': "{provider} stellt keine Diffs von Pull Requests bereit, daher lassen sie sich hier weder anzeigen noch durchgehen",
   'pullRequestComparison.partial': 'Einige Pull Requests konnten nicht geladen werden',
   'commitComparison.select': 'Commit auswählen',
   'commitComparison.search': 'Commits suchen...',
@@ -152,10 +156,12 @@ export const dict = {
   ...usageStatsI18n.de,
   ...webSearchI18n.de,
   ...sessionWarmingI18n.de,
+  ...heapSnapshotI18n.de,
   ...overviewI18n.de,
   ...isolatedSpacesI18n.de,
   ...sourceBoardI18n.de,
   ...stacksI18n.de,
+  ...changeReviewI18n.de,
   ...projectActionsI18n.de,
   ...gitIdentityEditorI18n.de,
   ...environmentI18n.de,
@@ -164,6 +170,7 @@ export const dict = {
   ...pluginsGridI18n.de,
   ...integrationsCatalogI18n['de'],
   ...diffFindI18n['de'],
+  ...guestStatusViewI18n['de'],
   'common.language.german': 'Deutsch',
   'common.loading': 'Wird geladen...',
   'common.unavailable': 'Nicht verfügbar',
@@ -571,14 +578,11 @@ export const dict = {
   'chat.chatInput.chooseProject': 'Projekt auswählen',
   'sessions.switcher.openAria': 'Sitzungswechsler öffnen',
   'header.sessionTabs.stripAria': 'Offene Sitzungen',
-  'header.github.connectedWithLogin': 'GitHub: {login}',
-  'header.github.connected': 'GitHub verbunden',
-  'header.github.avatarWithLogin': '{login} Avatar',
-  'header.github.avatar': 'GitHub-Avatar',
-  'header.gitlab.avatar': 'GitLab-Avatar',
-  'header.github.accountsTitle': 'GitHub-Konten',
-  'header.github.accountSource.oauth': 'OAuth',
-  'header.github.accountSource.cli': 'CLI',
+  'header.sourceControl.connectedWithLogin': '{provider}: {login}',
+  'header.sourceControl.connected': '{provider} verbunden',
+  'header.sourceControl.avatarWithLogin': '{login} Avatar',
+  'header.sourceControl.avatar': '{provider}-Avatar',
+  'header.sourceControl.accountsTitle': '{provider}-Konten',
   'header.sessionTabs.tabMenuAria': 'Aktionen für den Sitzungs-Tab',
   'header.sessionTabs.closeTab': 'Tab schließen',
   'header.sessionTabs.closeOtherTabs': 'Andere Tabs schließen',
@@ -1160,7 +1164,6 @@ export const dict = {
   'gitView.pr.mergeMethod.rebase': 'Rebase und Merge',
   'gitView.pr.mergeMethod.squash': 'Squash und Merge',
   'gitView.pr.notMergeable': 'Nicht mergebar',
-  'gitView.pr.numberLabel': 'PR #{number}',
   'gitView.pr.placeholder.additionalContext': 'Beliebige Einschränkungen, Rollout-Hinweise oder Kontext für die Reviewer...',
   'gitView.pr.placeholder.main': 'Zusammenfassung Ihres Pull-Requests',
   'gitView.pr.placeholder.selectBaseBranch': 'Basis-Branch auswählen',
@@ -2022,8 +2025,8 @@ export const dict = {
   'session.newWorktree.remoteBranches': 'Remote-Branches',
   'session.newWorktree.branchName': 'Branch-Name',
   'session.newWorktree.branchNamePlaceholder': 'feature/mein-geil-feature',
-  'session.newWorktree.actions.startFromGitHubIssuePr': 'Starte von GitHub Issue/PR',
-  'session.newWorktree.actions.startFromGitLabIssueMr': 'Ein GitLab-Issue oder Merge Request',
+  'session.newWorktree.actions.startFromRepository.pullRequest': 'Starte von {provider} Issue/PR',
+  'session.newWorktree.actions.startFromRepository.mergeRequest': 'Ein {provider}-Issue oder Merge Request',
   'session.newWorktree.worktreeDirectory': 'Worktree-Verzeichnis',
   'session.newWorktree.worktreeDirectoryPlaceholder': 'mein-worktree-verzeichnis',
   'session.newWorktree.resetToMatchBranchName': 'Zurücksetzen, um mit Branch-Namen übereinzustimmen',
@@ -2031,7 +2034,6 @@ export const dict = {
   'session.newWorktree.selectSourceBranch': 'Quell-Branch auswählen',
   'session.newWorktree.selectSourceBranchPlaceholder': 'Quell-Branch auswählen...',
   'session.newWorktree.issueNumber': 'Issue #{number}',
-  'session.newWorktree.prNumber': 'PR #{number}',
   'session.newWorktree.includeDiffBadge': '+diff',
   'session.newWorktree.fromSource': 'von {source}',
   'session.newWorktree.actions.cancel': 'Abbrechen',
@@ -2322,7 +2324,6 @@ export const dict = {
   'chat.chatInput.linked.issue.removeAria': 'Verknüpftes Issue entfernen',
   'chat.chatInput.linked.pr.openInBrowserAria': 'Pull Request im Browser öffnen',
   'chat.chatInput.linked.mr.openInBrowserAria': 'Merge Request im Browser öffnen',
-  'chat.chatInput.linked.pr.number': 'PR #{number}',
   'chat.chatInput.linked.pr.removeAria': 'Verknüpften Pull Request entfernen',
   'chat.chatInput.linked.mr.removeAria': 'Verknüpften Merge Request entfernen',
   'chat.chatInput.placeholder.shell': 'Shell-Befehl eingeben...',
@@ -2438,6 +2439,7 @@ export const dict = {
   'chat.toolPart.showFormattedJson': 'Formatierte JSON anzeigen',
   'chat.toolPart.showNavigableJson': 'Navigierbare JSON anzeigen',
   'chat.toolPart.openFile': 'Datei öffnen',
+  'chat.toolPart.openImageExpanded': 'Öffnen',
   'chat.toolPart.openFileAtFirstChange': 'Datei bei erster Änderung öffnen',
   'chat.toolPart.openFileDiff': 'Datei-Unterschied öffnen',
   'chat.toolPart.copyOutput': 'Ausgabe kopieren',
@@ -3165,6 +3167,7 @@ export const dict = {
   'mainLayout.mobile.closeDrawerAria': 'Drawer schließen',
   'sortableTabsStrip.aria.tabs': 'Tabs',
   'openChamberLogo.aria.logo': 'OpenChamber-Logo',
+  'markdownRenderer.code.proposal': 'Vorschlag',
   'markdownRenderer.code.actions.copyTitle': 'Code kopieren',
   'markdownRenderer.code.actions.copiedTitle': 'Kopiert',
   'markdownRenderer.table.actions.copyTitle': 'Tabelle kopieren',
@@ -3370,6 +3373,7 @@ export const dict = {
   'gitView.mr.comparison.mode': 'Merge Requests',
   'gitView.mr.comparison.select': 'Merge Request auswählen',
   'gitView.mr.comparison.pickAbove': 'Wähle oben einen Merge Request',
+  'gitView.mr.comparison.diffUnavailable': "{provider} stellt keine Diffs von Merge Requests bereit, daher lassen sie sich hier weder anzeigen noch durchgehen",
   'gitView.mr.comparison.partial': 'Einige Merge Requests konnten nicht geladen werden',
   'gitView.mr.comparison.searchPlaceholder': 'Merge Requests durchsuchen',
   'gitView.mr.comparison.loading': 'Merge Requests werden geladen...',
@@ -3379,9 +3383,6 @@ export const dict = {
   'gitView.mr.comparison.loadMoreFailed': 'Fehler beim Laden weiterer Merge Requests',
   'gitView.mr.walkthroughScope': 'MR !{number}',
   'gitView.mr.createHint': 'Erstellen und verwalten Sie Merge-Requests aus diesem Branch.',
-  'header.gitlab.connectedWithLogin': 'GitLab: {login}',
-  'header.gitlab.connected': 'GitLab verbunden',
-  'header.gitlab.accountsTitle': 'GitLab-Konten',
   'contextRail.configure.open': 'Panels konfigurieren',
   'contextRail.configure.dialogTitle': 'Leisten-Panels',
   'contextRail.configure.reorder': 'Ziehe {label}, um die Reihenfolge zu ändern',
@@ -3590,8 +3591,7 @@ export const dict = {
   'chat.workStatus.pinned.unpinFailed': 'Nachricht konnte nicht gelöst werden',
   'chat.workStatus.action.openContext': 'Kontextpanel öffnen',
   'chat.workStatus.section.linkedIssues': 'Verknüpft',
-  'chat.workStatus.linkedIssues.open': '#{number} auf GitHub öffnen',
-  'chat.workStatus.linkedIssues.openGitLab': '{reference} auf GitLab öffnen',
+  'chat.workStatus.linkedIssues.openOnProvider': '{reference} auf {provider} öffnen',
   'chat.workStatus.linkedIssues.unlink': 'Verknüpfung entfernen',
   'chat.workStatus.linkedIssues.unlinkFailed': 'Verknüpfung konnte nicht entfernt werden',
   'chat.workStatus.linkedIssues.link': 'Mit Sitzung verknüpfen',

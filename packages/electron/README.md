@@ -92,6 +92,8 @@ Additional windows keep their own per-window runtime bootstrap instead of being 
 
 The packaged UI protocol rejects relative `/api`, `/auth`, and `/health` requests with JSON `503`; runtime calls must use the per-window HTTP base and never fall back to the app shell.
 
+Extension frames load from `/api/guest-files/<grant>/…`, or `/api/guests/<id>/…` on a server without grants; the desktop navigation guard treats both prefixes as the extension's own pages.
+
 The HTML file preview runs in a sandboxed iframe without `allow-same-origin`, so it has an opaque origin like an extension frame. The desktop navigation guard lets the main app frame load `/api/fs/preview/<grant>/…` into an empty direct child, or reload a preview child with a new grant after the file is saved, and lets the preview follow its own links between pages of the same grant. A preview cannot reach another grant or any other route, and loaded extension frames and their children cannot navigate to a preview.
 
 For a saved host, the guard treats both its `url` and its `apiUrl` as the app's own origin. When a relay host's LAN address changes, the candidate refresh in `packages/ui/src/lib/desktopRelayRestore.ts` rewrites only `apiUrl`, and the window then loads extension pages from that address.
@@ -187,7 +189,7 @@ IPC results if its endpoint changes while the read is pending.
 | `scripts/bundle-main.mjs` | Bundles Electron main code into `dist-bundle/{entry,main,early-startup}.mjs` for packaging |
 | `scripts/rebuild-native.mjs` | Rebuilds native modules against the Electron runtime |
 | `scripts/package.mjs` | Runs `electron-builder`, with unsigned Windows builds when signing env is missing |
-| `resources/` | Packaged web assets, icons, macOS entitlements, and the NSIS include for the Windows installer |
+| `resources/` | Packaged web assets, icons, macOS entitlements, and the NSIS include for the Windows installer. Every file in `resources/icons` is written by `bun run brand:generate` (`scripts/brand`); do not edit them by hand |
 
 ## Development
 

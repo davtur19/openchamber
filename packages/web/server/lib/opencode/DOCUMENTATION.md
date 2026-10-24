@@ -42,7 +42,8 @@ Diagnostic logging for the timeline export (`proxy.js` error lines, the lifecycl
 - `packages/web/server/lib/opencode/startup-performance.js`: opt-in startup phase diagnostics with fixed labels and numeric metadata allowlists.
 - `packages/web/server/lib/agent-tool/runtime.js`: managed OpenCode custom-tool materialization, environment injection, same-machine authentication (loopback, or the bound address for a concrete bind), and fixed CLI action dispatch.
 - `packages/web/server/lib/opencode/managed-plugin-config.js`: the `OPENCODE_CONFIG_CONTENT` merge used only on the fallback path, when the user's own environment owns `OPENCODE_CONFIG`.
-- `packages/web/server/lib/opencode/managed-config-file.js`: the managed OpenCode config layer — materializes the enabled OpenChamber plugins (agent tools, system prompt optimizer, and the limit failover reporter from `../limit-failover/` while a fallback model or an account switch is set) and publishes them in a file OpenCode watches.
+- `packages/web/server/lib/opencode/managed-config-file.js`: the managed OpenCode config layer — materializes the enabled OpenChamber plugins (agent tools, the limit failover reporter from `../limit-failover/` while a fallback model or an account switch is set, and the session title prompt, always) and publishes them in a file OpenCode watches.
+- `packages/web/server/lib/opencode/session-title-plugin.js`: the plugin that gives OpenCode's hidden `title` agent OpenChamber's title style. See "Session title prompt" below.
 - `packages/web/server/lib/opencode/instance-dir.js`: this server's own folder under `<data-dir>/run/instances/<pid>/` for the files its managed OpenCode reads, and removal of folders left by servers that are gone.
 
 ### Managed plugins on OpenCode 2.x
@@ -980,6 +981,7 @@ within a ten-minute overall deadline.
   - The list shares discovery's parsed markdown by exact file path within the request. OpenCode's selected path wins even when local discovery picks another copy with the same name; a path absent from the parse map is read normally. Each request gets a new map, and source lookup still checks whether the selected file exists.
   - Create, edit and rename run one at a time per process, so an existence check cannot go stale before its own write; create also writes `SKILL.md` with `wx` and reports an existing file as "already exists" instead of overwriting it
   - `disableModelInvocation` (detail `sources.md`, create/update body) is "run only when called": it writes both `disable-model-invocation: true` and `metadata.opencode/autoinvoke: false` so every supported OpenCode 2.x and Claude Code honour it, reads back the way OpenCode resolves the pair (`opencode/autoinvoke` wins), and clearing it removes both keys while keeping other `metadata`. The VS Code runtime mirrors this in `opencodeConfig.ts`
+  - `PUT /api/config/skill-switch` with `{ id, enabled, scope }` turns a skill off or back on for agents through `skill-switch.js`. Off writes one exact `integration.use` deny for `skill:<id>` into the top-level `policies` of the skill's own scope (`getJsonWriteTarget`, so `OPENCODE_CONFIG` when set); on removes the exact deny for the id, in `policies` and the deprecated `experimental.policies`, from every config file OpenCode reads for the directory, skipping files it cannot parse. Wildcards, allows and other statements are never touched. The answer lists the files it changed. The pure edit is `writeSkillDisabled` in `config-v2.js`, shared with the VS Code bridge (`api:config/skill-switch`). OpenCode watches these files, so nothing restarts
   - Skills catalog listing/source pagination, scan, and install routes
   - Supporting skill file read/write/delete routes
   - Directory resolution prefers an explicit request directory, then soft-falls
@@ -1103,6 +1105,31 @@ under a running child.
   OpenChamber does not take it over. It merges its plugin directories into
   `OPENCODE_CONFIG_CONTENT` instead, and those installs keep the old behavior —
   a managed-tool toggle needs an OpenCode restart to take effect.
+
+### Session title prompt
+
+OpenCode names a new session with its hidden `title` agent. Its built-in prompt
+keeps file names and issue numbers and tends to restate the request, so the
+first title often reads like a summary of the prompt and gets cut off in the
+sidebar. `session-title-plugin.js` replaces that agent's `system` prompt with
+the folder-label style the UI's own regeneration uses
+(`packages/ui/src/lib/sessionTitle.ts`); the two prompts change together.
+
+- The plugin is listed on every managed launch, with no setting. External
+  OpenCode and the VS Code extension's own OpenCode get no managed plugins, so
+  they keep OpenCode's prompt.
+- An `agents.title.system` the user set, in global or project config or an
+  agent file, still wins. OpenCode activates configured plugins after its
+  built-in agents and before its config agents, so the config writes the
+  prompt after this plugin.
+
+#### Why an agent transform and not the `session.title` hook
+
+The hook runs on every title request, after config is applied, so it would
+overwrite a user's own `agents.title.system`, and telling the user's prompt
+apart from OpenCode's inside the hook means comparing prompt text. The agent
+transform takes OpenCode's own plugin order and leaves the user's choice on top
+with no check at all.
 
 The embedded server controller exposes `getManagedOpenCodePreflight()` for
 desktop bootstrap. It shares the lifecycle's current CLI validation promise,

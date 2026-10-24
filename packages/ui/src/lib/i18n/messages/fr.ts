@@ -15,10 +15,12 @@ import { sessionNoticesI18n } from './session-notices.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { sessionWarmingI18n } from './session-warming.i18n';
+import { heapSnapshotI18n } from './heap-snapshot.i18n';
 import { overviewI18n } from './overview.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
 import { stacksI18n } from './stacks.i18n';
+import { changeReviewI18n } from './change-review.i18n';
 import { projectActionsI18n } from './project-actions.i18n';
 import { gitIdentityEditorI18n } from './git-identity-editor.i18n';
 import { environmentI18n } from './environment.i18n';
@@ -27,6 +29,7 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
 import { diffFindI18n } from './diff-find.i18n';
+import { guestStatusViewI18n } from './guest-status-view.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode est inclus dans OpenChamber. Mettez OpenChamber à jour pour obtenir OpenCode v2.",
@@ -57,6 +60,7 @@ export const dict = {
   'commitComparison.mode': 'Commit',
   'pullRequestComparison.select': 'Sélectionner une pull request',
   'pullRequestComparison.pickAbove': 'Choisissez une pull request ci-dessus',
+  'pullRequestComparison.diffUnavailable': "{provider} ne fournit pas le diff des pull requests : impossible de les afficher ou de les parcourir ici",
   'pullRequestComparison.partial': "Certaines pull requests n'ont pas pu être chargées",
   'commitComparison.select': 'Choisir un commit',
   'commitComparison.search': 'Rechercher des commits...',
@@ -152,10 +156,12 @@ export const dict = {
   ...usageStatsI18n.fr,
   ...webSearchI18n.fr,
   ...sessionWarmingI18n.fr,
+  ...heapSnapshotI18n.fr,
   ...overviewI18n.fr,
   ...isolatedSpacesI18n.fr,
   ...sourceBoardI18n.fr,
   ...stacksI18n.fr,
+  ...changeReviewI18n.fr,
   ...projectActionsI18n.fr,
   ...gitIdentityEditorI18n.fr,
   ...environmentI18n.fr,
@@ -164,6 +170,7 @@ export const dict = {
   ...pluginsGridI18n.fr,
   ...integrationsCatalogI18n['fr'],
   ...diffFindI18n['fr'],
+  ...guestStatusViewI18n['fr'],
   'terminalView.actions.attachSelection': 'Joindre la sortie sélectionnée',
   'terminalView.actions.copySelection': 'Copier la sortie sélectionnée',
   'terminalView.toast.selectionCopied': 'Sortie copiée',
@@ -471,14 +478,11 @@ export const dict = {
   'sessions.archivePage.restoreSessionAria': 'Restaurer {title}',
   'sessions.switcher.openAria': 'Sélecteur de session ouvert',
   'header.sessionTabs.stripAria': 'Sessions ouvertes',
-  'header.github.connectedWithLogin': 'GitHub : {login}',
-  'header.github.connected': 'GitHub connecté',
-  'header.github.avatarWithLogin': 'Avatar {login}',
-  'header.github.avatar': 'Avatar GitHub',
-  'header.gitlab.avatar': 'Avatar GitLab',
-  'header.github.accountsTitle': 'Comptes GitHub',
-  'header.github.accountSource.oauth': 'OAuth',
-  'header.github.accountSource.cli': 'CLI',
+  'header.sourceControl.connectedWithLogin': '{provider} : {login}',
+  'header.sourceControl.connected': '{provider} connecté',
+  'header.sourceControl.avatarWithLogin': 'Avatar {login}',
+  'header.sourceControl.avatar': 'Avatar {provider}',
+  'header.sourceControl.accountsTitle': 'Comptes {provider}',
   'header.sessionTabs.tabMenuAria': 'Actions de l\'onglet de session',
   'header.sessionTabs.closeTab': 'Fermer l\'onglet',
   'header.sessionTabs.closeOtherTabs': 'Fermer les autres onglets',
@@ -1072,7 +1076,6 @@ export const dict = {
   'gitView.pr.mergeMethod.rebase': 'Rebaser et fusionner',
   'gitView.pr.mergeMethod.squash': 'Squasher et fusionner',
   'gitView.pr.notMergeable': 'Non fusionnable',
-  'gitView.pr.numberLabel': 'PR #{number}',
   'gitView.pr.segment.checks': 'Vérifications',
   'gitView.pr.comments.addAll': 'Tout joindre au chat',
   'gitView.pr.placeholder.additionalContext': 'Toute contrainte, note de déploiement ou contexte du réviseur...',
@@ -1200,6 +1203,7 @@ export const dict = {
   'gitView.mr.comparison.mode': 'MR',
   'gitView.mr.comparison.select': 'Sélectionner une merge request',
   'gitView.mr.comparison.pickAbove': 'Choisissez une merge request ci-dessus',
+  'gitView.mr.comparison.diffUnavailable': "{provider} ne fournit pas le diff des merge requests : impossible de les afficher ou de les parcourir ici",
   'gitView.mr.comparison.partial': 'Certaines merge requests n\'ont pas pu être chargées',
   'gitView.mr.comparison.searchPlaceholder': 'Rechercher des MR',
   'gitView.mr.comparison.loading': 'Chargement des MR...',
@@ -1209,9 +1213,6 @@ export const dict = {
   'gitView.mr.comparison.loadMoreFailed': 'Échec du chargement d\'autres MR',
   'gitView.mr.walkthroughScope': 'MR !{number}',
   'gitView.mr.createHint': 'Créez et gérez les MR depuis cette branche.',
-  'header.gitlab.connectedWithLogin': 'GitLab : {login}',
-  'header.gitlab.connected': 'GitLab connecté',
-  'header.gitlab.accountsTitle': 'Comptes GitLab',
   'contextPanel.mode.context': 'Contexte',
   'contextPanel.mode.preview': 'Aperçu',
   'contextPanel.mode.browser': 'Navigateur',
@@ -2018,8 +2019,8 @@ export const dict = {
   'session.newWorktree.remoteBranches': 'Branches du dépôt distant',
   'session.newWorktree.branchName': 'Nom de la branche',
   'session.newWorktree.branchNamePlaceholder': 'fonctionnalité/ma-fonctionnalité-géniale',
-  'session.newWorktree.actions.startFromGitHubIssuePr': 'À partir d\'une issue/PR GitHub',
-  'session.newWorktree.actions.startFromGitLabIssueMr': 'Un ticket ou une merge request GitLab',
+  'session.newWorktree.actions.startFromRepository.pullRequest': "À partir d'une issue/PR {provider}",
+  'session.newWorktree.actions.startFromRepository.mergeRequest': 'Un ticket ou une merge request {provider}',
   'session.newWorktree.worktreeDirectory': 'Répertoire du worktree',
   'session.newWorktree.worktreeDirectoryPlaceholder': 'mon-répertoire-worktree',
   'session.newWorktree.resetToMatchBranchName': 'Réinitialiser pour correspondre au nom de la branche',
@@ -2027,7 +2028,6 @@ export const dict = {
   'session.newWorktree.selectSourceBranch': 'Sélectionnez la branche source',
   'session.newWorktree.selectSourceBranchPlaceholder': 'Sélectionnez la branche source...',
   'session.newWorktree.issueNumber': 'Issue #{number}',
-  'session.newWorktree.prNumber': 'PR #{number}',
   'session.newWorktree.includeDiffBadge': '+diff',
   'session.newWorktree.fromSource': 'de {source}',
   'session.newWorktree.actions.cancel': 'Annuler',
@@ -2294,7 +2294,6 @@ export const dict = {
   'chat.chatInput.linked.issue.removeAria': 'Supprimer l\'issue liée',
   'chat.chatInput.linked.pr.openInBrowserAria': 'Ouvrir la PR dans le navigateur',
   'chat.chatInput.linked.mr.openInBrowserAria': 'Ouvrir la merge request dans le navigateur',
-  'chat.chatInput.linked.pr.number': 'PR #{number}',
   'chat.chatInput.linked.pr.removeAria': 'Supprimer la PR liée',
   'chat.chatInput.linked.mr.removeAria': 'Retirer la merge request liée',
   'chat.chatInput.placeholder.shell': 'Entrez la commande shell...',
@@ -3112,6 +3111,7 @@ export const dict = {
   'mainLayout.mobile.closeDrawerAria': 'Fermer le tiroir',
   'sortableTabsStrip.aria.tabs': 'Onglets',
   'openChamberLogo.aria.logo': 'Logo OpenChamber',
+  'markdownRenderer.code.proposal': 'Proposition',
   'markdownRenderer.code.actions.copyTitle': 'Copier le code',
   'markdownRenderer.code.actions.copiedTitle': 'Copié',
   'markdownRenderer.table.actions.copyTitle': 'Copier le tableau',
@@ -3488,6 +3488,7 @@ export const dict = {
   'chat.toolPart.showFormattedJson': 'Afficher le JSON formaté',
   'chat.toolPart.showNavigableJson': 'Afficher le JSON navigable',
   'chat.toolPart.openFile': 'Ouvrir le fichier',
+  'chat.toolPart.openImageExpanded': 'Ouvrir',
   'chat.toolPart.openFileAtFirstChange': 'Ouvrir le fichier à la première modification',
   'chat.toolPart.openFileDiff': 'Ouvrir les différences du fichier',
   'chat.toolPart.copyOutput': 'Copier la sortie',
@@ -3591,8 +3592,7 @@ export const dict = {
   'chat.workStatus.pinned.unpinFailed': 'Impossible de détacher le message',
   'chat.workStatus.action.openContext': 'Ouvrir le panneau de contexte',
   'chat.workStatus.section.linkedIssues': 'Liés',
-  'chat.workStatus.linkedIssues.open': 'Ouvrir #{number} sur GitHub',
-  'chat.workStatus.linkedIssues.openGitLab': 'Ouvrir {reference} sur GitLab',
+  'chat.workStatus.linkedIssues.openOnProvider': 'Ouvrir {reference} sur {provider}',
   'chat.workStatus.linkedIssues.unlink': 'Retirer le lien',
   'chat.workStatus.linkedIssues.unlinkFailed': 'Impossible de retirer le lien',
   'chat.workStatus.linkedIssues.link': 'Lier à la session',

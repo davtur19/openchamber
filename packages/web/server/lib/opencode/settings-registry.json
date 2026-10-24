@@ -249,6 +249,9 @@
     "tunnelMode": {
       "scope": "instance"
     },
+    "tunnelHttpsPort": {
+      "scope": "instance"
+    },
     "tunnelBootstrapTtlMs": {
       "scope": "instance"
     },
@@ -786,6 +789,10 @@
       "local": true
     },
     "isSidebarOpen": {
+      "scope": "device",
+      "local": true
+    },
+    "sidebarFoldedForExpandedZone": {
       "scope": "device",
       "local": true
     },

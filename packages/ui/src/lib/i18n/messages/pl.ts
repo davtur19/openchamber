@@ -16,10 +16,12 @@ import { sessionNoticesI18n } from './session-notices.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { sessionWarmingI18n } from './session-warming.i18n';
+import { heapSnapshotI18n } from './heap-snapshot.i18n';
 import { overviewI18n } from './overview.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
 import { stacksI18n } from './stacks.i18n';
+import { changeReviewI18n } from './change-review.i18n';
 import { projectActionsI18n } from './project-actions.i18n';
 import { gitIdentityEditorI18n } from './git-identity-editor.i18n';
 import { environmentI18n } from './environment.i18n';
@@ -28,6 +30,7 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
 import { diffFindI18n } from './diff-find.i18n';
+import { guestStatusViewI18n } from './guest-status-view.i18n';
 
 export const dict: Record<I18nKey, string> = {
   "opencodeCompatibility.bundled": "OpenCode jest dołączony do OpenChamber. Zaktualizuj OpenChamber, aby uzyskać OpenCode v2.",
@@ -58,6 +61,7 @@ export const dict: Record<I18nKey, string> = {
   'commitComparison.mode': 'Commit',
   'pullRequestComparison.select': 'Wybierz pull request',
   'pullRequestComparison.pickAbove': 'Wybierz pull request powyżej',
+  'pullRequestComparison.diffUnavailable': "{provider} nie udostępnia diffów pull requestów, więc nie można ich tu pokazać ani omówić",
   'pullRequestComparison.partial': 'Nie udało się wczytać niektórych pull requestów',
   'commitComparison.select': 'Wybierz commit',
   'commitComparison.search': 'Szukaj commitów...',
@@ -153,10 +157,12 @@ export const dict: Record<I18nKey, string> = {
   ...usageStatsI18n.pl,
   ...webSearchI18n.pl,
   ...sessionWarmingI18n.pl,
+  ...heapSnapshotI18n.pl,
   ...overviewI18n.pl,
   ...isolatedSpacesI18n.pl,
   ...sourceBoardI18n.pl,
   ...stacksI18n.pl,
+  ...changeReviewI18n.pl,
   ...projectActionsI18n.pl,
   ...gitIdentityEditorI18n.pl,
   ...environmentI18n.pl,
@@ -165,6 +171,7 @@ export const dict: Record<I18nKey, string> = {
   ...pluginsGridI18n.pl,
   ...integrationsCatalogI18n['pl'],
   ...diffFindI18n['pl'],
+  ...guestStatusViewI18n['pl'],
   'terminalView.actions.attachSelection': 'Dołącz zaznaczone dane wyjściowe',
   'terminalView.actions.copySelection': 'Kopiuj zaznaczone dane wyjściowe',
   'terminalView.toast.selectionCopied': 'Skopiowano dane wyjściowe',
@@ -491,14 +498,11 @@ export const dict: Record<I18nKey, string> = {
   'sessions.archivePage.restoreSessionAria': 'Przywróć {title}',
   'sessions.switcher.openAria': 'Otwórz przełącznik sesji',
   'header.sessionTabs.stripAria': 'Otwarte sesje',
-  'header.github.accountsTitle': 'Konta GitHub',
-  'header.github.accountSource.oauth': 'OAuth',
-  'header.github.accountSource.cli': 'CLI',
-  'header.github.avatar': 'Awatar GitHub',
-  'header.gitlab.avatar': 'Awatar GitLab',
-  'header.github.avatarWithLogin': 'Awatar {login}',
-  'header.github.connected': 'GitHub połączony',
-  'header.github.connectedWithLogin': 'GitHub: {login}',
+  'header.sourceControl.accountsTitle': 'Konta {provider}',
+  'header.sourceControl.avatar': 'Awatar {provider}',
+  'header.sourceControl.avatarWithLogin': 'Awatar {login}',
+  'header.sourceControl.connected': '{provider} połączony',
+  'header.sourceControl.connectedWithLogin': '{provider}: {login}',
   'header.sessionTabs.tabMenuAria': 'Akcje karty sesji',
   'header.sessionTabs.closeTab': 'Zamknij kartę',
   'header.sessionTabs.closeOtherTabs': 'Zamknij pozostałe karty',
@@ -1425,7 +1429,6 @@ export const dict: Record<I18nKey, string> = {
   'chat.chatInput.linked.issue.removeAria': 'Usuń powiązane zgłoszenie',
   'chat.chatInput.linked.pr.openInBrowserAria': 'Otwórz pull request w przeglądarce',
   'chat.chatInput.linked.mr.openInBrowserAria': 'Otwórz merge request w przeglądarce',
-  'chat.chatInput.linked.pr.number': 'PR #{number}',
   'chat.chatInput.linked.pr.removeAria': 'Usuń powiązany pull request',
   'chat.chatInput.linked.mr.removeAria': 'Usuń powiązany merge request',
   'chat.chatInput.placeholder.chat': 'Planuj, buduj lub pytaj. @ aby wspomnieć, $ dla umiejętności, / dla poleceń',
@@ -1650,6 +1653,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.toolPart.showFormattedJson': 'Pokaż sformatowany JSON',
   'chat.toolPart.showNavigableJson': 'Pokaż nawigowalny JSON',
   'chat.toolPart.openFile': 'Otwórz plik',
+  'chat.toolPart.openImageExpanded': 'Otwórz',
   'chat.toolPart.openFileAtFirstChange': 'Otwórz plik przy pierwszej zmianie',
   'chat.toolPart.openFileDiff': 'Otwórz różnice pliku',
   'chat.toolPart.copyOutput': 'Kopiuj wyjście',
@@ -1772,6 +1776,7 @@ export const dict: Record<I18nKey, string> = {
   'gitView.mr.comparison.mode': 'Merge requesty',
   'gitView.mr.comparison.select': 'Wybierz merge request',
   'gitView.mr.comparison.pickAbove': 'Wybierz merge request powyżej',
+  'gitView.mr.comparison.diffUnavailable': "{provider} nie udostępnia diffów merge requestów, więc nie można ich tu pokazać ani omówić",
   'gitView.mr.comparison.partial': 'Nie udało się wczytać niektórych merge requestów',
   'gitView.mr.comparison.searchPlaceholder': 'Szukaj merge requestów',
   'gitView.mr.comparison.loading': 'Ładowanie merge requestów...',
@@ -1781,9 +1786,6 @@ export const dict: Record<I18nKey, string> = {
   'gitView.mr.comparison.loadMoreFailed': 'Nie udało się załadować kolejnych merge requestów',
   'gitView.mr.walkthroughScope': 'MR !{number}',
   'gitView.mr.createHint': 'Utwórz i zarządzaj merge requestami z tej gałęzi.',
-  'header.gitlab.connectedWithLogin': 'GitLab: {login}',
-  'header.gitlab.connected': 'GitLab połączony',
-  'header.gitlab.accountsTitle': 'Konta GitLab',
   'contextPanel.mode.preview': 'Podgląd',
   'contextPanel.mode.browser': 'Przeglądarka',
   'contextRail.configure.open': 'Konfiguruj panele',
@@ -2667,11 +2669,10 @@ export const dict: Record<I18nKey, string> = {
   'gitView.pr.providerNotConnected': '{provider} nie jest połączony',
   'gitView.pr.history.merged': 'PR #{number} został scalony do {base}.',
   'gitView.pr.history.closed': 'PR #{number} został zamknięty.',
-  'gitView.pr.mergeMethod.merge': 'Create a merge commit',
-  'gitView.pr.mergeMethod.rebase': 'Rebase and merge',
-  'gitView.pr.mergeMethod.squash': 'Squash and merge',
+  'gitView.pr.mergeMethod.merge': 'Utwórz commit scalający',
+  'gitView.pr.mergeMethod.rebase': 'Rebase i scal',
+  'gitView.pr.mergeMethod.squash': 'Squash i scal',
   'gitView.pr.notMergeable': 'Nie można scalić',
-  'gitView.pr.numberLabel': 'PR #{number}',
   'gitView.pr.segment.checks': 'Kontrole',
   'gitView.pr.comments.addAll': 'Dołącz wszystko do czatu',
   'gitView.pr.placeholder.additionalContext': 'Ograniczenia, notatki wdrożeniowe lub kontekst dla recenzenta...',
@@ -2910,6 +2911,7 @@ export const dict: Record<I18nKey, string> = {
   'markdownRenderer.mermaid.actions.zoomOutTitle': 'Pomniejsz',
   'markdownRenderer.mermaid.actions.resetViewTitle': 'Resetuj widok',
   'markdownRenderer.mermaid.toast.downloadFailed': 'Nie udało się pobrać diagramu',
+  'markdownRenderer.code.proposal': 'Propozycja',
   'markdownRenderer.code.actions.copyTitle': 'Kopiuj kod',
   'markdownRenderer.code.actions.copiedTitle': 'Skopiowano',
   'markdownRenderer.table.actions.copyTitle': 'Kopiuj tabelę',
@@ -3179,8 +3181,8 @@ export const dict: Record<I18nKey, string> = {
   'session.newWorktree.mode.fromItem': 'PR lub issue',
   'session.newWorktree.mr.item': 'MR lub issue',
   'session.newWorktree.error.attachLinkedFailed': 'Nie udało się dołączyć {item}',
-  'session.newWorktree.actions.startFromGitHubIssuePr': 'Rozpocznij ze zgłoszenia/PR GitHub',
-  'session.newWorktree.actions.startFromGitLabIssueMr': 'Zgłoszenie lub merge request z GitLaba',
+  'session.newWorktree.actions.startFromRepository.pullRequest': 'Rozpocznij ze zgłoszenia/PR {provider}',
+  'session.newWorktree.actions.startFromRepository.mergeRequest': 'Zgłoszenie lub merge request z {provider}',
   'session.newWorktree.branchName': 'Nazwa gałęzi',
   'session.newWorktree.branchNamePlaceholder': 'feature/my-awesome-feature',
   'session.newWorktree.chooseBranch': 'Wybierz gałąź...',
@@ -3202,7 +3204,6 @@ export const dict: Record<I18nKey, string> = {
   'session.newWorktree.mode.newBranch': 'Nowa gałąź',
   'session.newWorktree.noBranchesFound': 'Nie znaleziono gałęzi',
   'session.newWorktree.noMatchingBranches': 'Brak pasujących gałęzi',
-  'session.newWorktree.prNumber': 'PR #{number}',
   'session.newWorktree.remoteBranches': 'Zdalne gałęzie',
   'session.newWorktree.resetToMatchBranchName': 'Zresetuj do nazwy zgodnej z gałęzią',
   'session.newWorktree.searchBranches': 'Szukaj gałęzi...',
@@ -3597,8 +3598,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.workStatus.pinned.unpinFailed': 'Nie udało się odpiąć wiadomości',
   'chat.workStatus.action.openContext': 'Otwórz panel kontekstu',
   'chat.workStatus.section.linkedIssues': 'Powiązane',
-  'chat.workStatus.linkedIssues.open': 'Otwórz #{number} w GitHub',
-  'chat.workStatus.linkedIssues.openGitLab': 'Otwórz {reference} w GitLab',
+  'chat.workStatus.linkedIssues.openOnProvider': 'Otwórz {reference} w {provider}',
   'chat.workStatus.linkedIssues.unlink': 'Usuń powiązanie',
   'chat.workStatus.linkedIssues.unlinkFailed': 'Nie udało się usunąć powiązania',
   'chat.workStatus.linkedIssues.link': 'Powiąż z sesją',

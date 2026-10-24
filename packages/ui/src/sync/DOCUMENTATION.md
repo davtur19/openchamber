@@ -186,13 +186,31 @@ then started the directory again within a second of every release. The pending
 permissions and forms OpenCode rejected on the way out and the turns it
 interrupted arrive as their own events.
 
-Every managed chat and every worktree has its own directory, so each one
+The selected directory is bootstrapped at once only while the window is visible
+and focused. With the window hidden or unfocused it goes into
+`dormantLocations` instead: no bootstrap and no MCP status re-read until the
+window is focused again, which bootstraps it and refreshes its held status. If
+the user moved to another directory meanwhile, its status is forgotten like a
+background directory's.
+
+### Why the selected directory waits for the user and not for nothing
+
+Bootstrapping on every shutdown kept an app left open overnight in an hourly
+loop: OpenCode evicted the idle location, the bootstrap read it within
+milliseconds, and the location started again with every MCP server, each remote
+one going through OAuth with an expired token. Waiting for the window to be
+focused costs only a few seconds of MCP startup when the user returns. A
+hidden-only check was rejected because a desktop window behind other windows
+stays visible all night.
+
+Every managed chat, worktree and project has its own directory, so each one
 opened would keep its own set of MCP servers for that hour.
-`location-release.ts` releases such a directory's location
+`location-release.ts` releases a directory's location
 (`DELETE /api/debug/location`, the route the worktree removal paths already
 use) after the selected directory moves away from it: 30 s for a chat, 5 min
-for a worktree, which the user comes back to through the day and where a
-return after a release waits for the MCP servers to start again. A worktree is
+for a worktree and 15 min for anything else, a project above all. The user
+comes back to worktrees through the day and to projects most, and a return
+after a release waits for the MCP servers to start again. A worktree is
 a path listed in `availableWorktreesByProject` that is not a project root. It
 checks again at that moment and keeps the location while the directory is
 selected again, shown in a side panel, has a busy or retrying session, a
@@ -206,13 +224,14 @@ server announces both ends of that wait (`openchamber.session-assist`,
 or dropped by a new turn; the end re-checks the waiting directory at once. A
 wait whose end this client never hears stops holding the directory after five
 minutes. With the recap and the suggestion off nothing waits. A directory
-without a store is left to OpenCode's own sweep. Project roots are never
-released this way: the user returns to them most, and the server's default
-scope reads the last-used one. Another client still showing the directory gets
+without a store is left to OpenCode's own sweep. The directory the user is in
+is never released, and the server's reads without a directory of their own go
+to that same directory (`noteCurrentDirectory` in the server lifecycle), so a
+left project is not started again by them. Another client still showing the directory gets
 `location.shutdown` and bootstraps it again, which restarts its MCP servers. A
 failed release is ignored: OpenCode's own sweep still applies. The rule is the
-same on every surface; VS Code has no managed chats, so only worktrees it
-lists qualify there.
+same on every surface; VS Code has no managed chats, so only its worktrees and
+projects qualify there.
 
 ## Committing a revert
 
@@ -560,13 +579,13 @@ In-app permission and form toasts for a directory without a store are shown from
 
 "Open session" on a permission or form toast opens the session and passes the request id to `request-reveal.ts`. The permission or form dock that holds that request expands, and the permission dock switches to it. Selecting the session alone would leave a dock the user collapsed collapsed when that session is already open. The id waits until a dock holds it, so a dock that mounts after the session switch still expands.
 
-An MCP elicitation arrives as a `form.created` whose `sessionID` is the `global` sentinel (`LOCATION_SCOPED_FORM_SESSION_ID` in `location-scoped-forms.ts`): no session record exists for it, so event routing does not treat it as a session address and it never enters the session routing index, otherwise a second directory's elicitation would land in the first one's store. OpenCode 2.0.27 publishes these forms, `form.created` and `form.cancelled` alike, without a location, so the event names no directory either. `routeUnlocatedLocationScopedForm` handles such an event before routing: a settled form is handed to every store that holds its id, and a created form makes the stores whose directory may have asked it (a running turn, since an MCP server asks while one of its tools runs, plus the active directory) re-read their `global` forms, because filing it by guess would send the reply to a directory that answers "form not found". An event that does carry a directory is filed by that directory. The directory store keeps the form under `form["global"]`, bootstrap's directory-scoped `form.list` returns it like any pending form, `useScopedBlockingForms` surfaces it from every session of that directory, and reply/cancel resolve the directory from the store that holds it.
+An MCP elicitation arrives as a `form.created` whose `sessionID` is the `global` sentinel (`LOCATION_SCOPED_FORM_SESSION_ID` in `location-scoped-forms.ts`): no session record exists for it, so event routing does not treat it as a session address and it never enters the session routing index, otherwise a second directory's elicitation would land in the first one's store. OpenCode 2.0.27 through 2.1.3 publish these forms, `form.created` and `form.cancelled` alike, without a location, so the event names no directory either; 2.1.4 publishes them with their location, and the unlocated routing below goes once the minimum supported OpenCode reaches 2.1.4. `routeUnlocatedLocationScopedForm` handles such an event before routing: a settled form is handed to every store that holds its id, and a created form makes the stores whose directory may have asked it (a running turn, since an MCP server asks while one of its tools runs, plus the active directory) re-read their `global` forms, because filing it by guess would send the reply to a directory that answers "form not found". An event that does carry a directory is filed by that directory. The directory store keeps the form under `form["global"]`, bootstrap's directory-scoped `form.list` returns it like any pending form, `useScopedBlockingForms` surfaces it from every session of that directory, and reply/cancel resolve the directory from the store that holds it.
 
 Error details for a failed turn (`notification-store.ts`, shown under the turn by `SessionErrorNotice`) are recorded before the directory-store lookup in `handleEvent`, so an unopened directory still keeps them. The subtask check reads the directory store when the directory is open and the global session cache otherwise. Event routing likewise consults the global session cache: a session-addressed event with no directory is routed to the directory the cache records for that session before any active-session or single-store fallback, so another project's events cannot land in the one open store.
 
 Session display order is independent from streaming-frequency `time.updated` publications. `session-ordering.ts` promotes a session exactly when its authoritative activity phase crosses `settled` (`idle`/`error`) and `active` (`busy`/`retry`) in either direction. Repeated busy/retry or idle/error events are no-ops. The first authoritative status snapshot establishes a baseline without synthetic promotions; later snapshots reconcile missed transitions. Root sessions compare lifecycle rank only with other roots, while child sessions compare lifecycle rank only with siblings sharing the same `parentID`, so child activity never moves its root conversation. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering, so later metadata-only updates cannot reorder it; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
 
-`session-activity-timing.ts` counts how long a turn has been running. `SessionStatus` carries no timestamps, so the OpenChamber host keeps when each session's latest turn began (`session-runtime.js`: `session.execution.started`, or the turn's first message read back from history for a turn already running when the host connected) and hands it out beside the status: `turnStartedAt` on `openchamber:session-status` events and on `/api/sessions/status` entries, on the host's clock. The client moves it onto its own clock by elapsed time (`hostTurnStart`: now here minus the host's now minus the start), so a phone whose clock is off still shows the host's elapsed time. The module is driven from the same two write paths as `global-session-status.ts`, so a row can never count a turn that index calls idle. A session entering a turn takes the best start known: a host start, this device seeing `session.execution.started` (stamped on arrival), or a start persisted before a reload. The last two stand in until the host's arrives and make the host request below. A running session with none of them is held in `startUnknown` and shows no duration. The first time in a turn that a session has no host start, the module asks once through `setHostTurnStartRequester` (wired by `sync-context.tsx` to `requestHostTurnStarts`, which waits 300 ms for the host's own status event and then reads the host map through the seed when a start is still missing). A host start replaces a stand-in and fills a missing start. Against an earlier host start, a difference under 1 s is network delay and is ignored; a later start is ignored for a turn this device holds open through background work (`global-session-status.ts` reports that hold), because it is the session running again inside the turn already counted; any other different start means this device missed a turn change, and the host's is taken. A host map read is ignored for a session whose turn began on this device while the read was in flight: the map describes the turn before it. Settling converts the start into a finished duration, kept in memory only. Rows show a finished turn's length while the session is unread, through `session-turn-duration.ts`: the length the server recorded on the session (`metadata.openchamber.turn`, `lib/sessionTurnMetadata.ts`) wins, and this page's measurement covers the moment before that record arrives. That is what keeps the length on a row after a restart and on every device. VS Code's `/api/sessions/status` shim reports no starts, so there a webview counts only turns it saw begin or resumes within the persisted bounds below, and shows no duration for a turn it joined.
+`session-activity-timing.ts` counts how long a turn has been running. `SessionStatus` carries no timestamps, so the OpenChamber host keeps when each session's latest turn began (`session-runtime.js`: `session.execution.started`, or the turn's first message read back from history for a turn already running when the host connected) and hands it out beside the status: `turnStartedAt` on `openchamber:session-status` events and on `/api/sessions/status` entries, on the host's clock. The client moves it onto its own clock by elapsed time (`hostTurnStart`: now here minus the host's now minus the start), so a phone whose clock is off still shows the host's elapsed time. The module is driven from the same two write paths as `global-session-status.ts`, so a row can never count a turn that index calls idle. A session entering a turn takes the best start known: a host start, this device seeing `session.execution.started` (stamped on arrival), or a start persisted before a reload. The last two stand in until the host's arrives and make the host request below. A running session with none of them is held in `startUnknown` and shows no duration. The first time in a turn that a session has no host start, the module asks once through `setHostTurnStartRequester` (wired by `sync-context.tsx` to `requestHostTurnStarts`, which waits 300 ms for the host's own status event and then reads the host map through the seed when a start is still missing). A host start replaces a stand-in and fills a missing start. Against an earlier host start, a difference under 1 s is network delay and is ignored; a later start is ignored for a turn this device holds open through background work (`global-session-status.ts` reports that hold), because it is the session running again inside the turn already counted; any other different start means this device missed a turn change, and the host's is taken. A host map read is ignored for a session whose start this device learned while the read was in flight: the map describes the turn before it. A session this device only joined from a status snapshot is not such a case, so the read's start still applies. Settling converts the start into a finished duration, kept in memory only. Rows show a finished turn's length while the session is unread, through `session-turn-duration.ts`: the length the server recorded on the session (`metadata.openchamber.turn`, `lib/sessionTurnMetadata.ts`) wins, and this page's measurement covers the moment before that record arrives. That is what keeps the length on a row after a restart and on every device. VS Code's extension host reports the start of a running turn it saw begin as an age, and the webview anchors that age on its own clock, so a webview reload resumes the count. A turn that began before the extension host was listening still shows no duration until a live event marks a later turn.
 
 A background subagent keeps its parent's turn open for display. The parent goes idle while the child session works and runs again when OpenCode hands the result back; `global-session-status.ts` therefore holds the parent's timer through that pause (an idle parent with a running descendant does not settle, the last descendant to finish settles it, and snapshots count ancestors of running sessions as active). `useSessionTurnActivity` exposes that display state to rows, tabs and switchers. `statusById` and `activeSessionIds` stay the session's own status: sends, cleanup and retention must not treat an idle parent as busy. The parent lookup comes from the global sessions store through `setSessionParentResolver`, wired by `sync-context.tsx`.
 
@@ -763,9 +782,10 @@ Streaming assistant and reasoning text is throttled once before reaching the
 Markdown renderer. The existing visibility/commit layer controls when source
 is shown; Streamdown owns parsing and React block updates after that boundary.
 The renderer adds no character-pacing timer or application HTML block cache.
-Native code components own their shell, line numbers and asynchronous
-application-owned worker highlighting. Non-Markdown code views and CodeMirror continue to use
-the shared Shiki worker independently of Markdown rendering.
+Native code components own their shell, line numbers and application-owned
+highlighting: Highlights on the main thread for the languages it has a lexer
+for, the Shiki worker for the rest. Non-Markdown code views and CodeMirror use
+the same split independently of Markdown rendering.
 
 The event pipeline delivers each ordered per-directory flush as one reducer batch. Events retain their individual notifications, cleanup, routing, materialization, and debug side effects, while directory mutations accumulate in order and publish one store transaction per touched directory. Global session mutations and live status, ordering, and timing transitions also accumulate in event order and each owner publishes at most once for the flush. Each top-level state slice is cloned lazily at most once in that batch; no-op events do not change references.
 
@@ -880,7 +900,7 @@ Examples of global-store updates performed in `session-actions.ts`:
 - `unarchiveSession()` / `unarchiveSessions()` -> wait for server confirmation, then upsert each restored session. Restoring a top-level session brings its archived subsessions back with it. A subsession under an archived or unknown parent comes back only with that parent, and its id alone fails. A subsession archived on its own while its parent stays active restores alone and brings its own archived subsessions; `isRestorableOnItsOwn` (`session-restore-rule.ts`) is the one rule, shared with the Archive page and the chat header's session menu. `undo` still puts back exactly what an archive just moved.
 - `deleteSession()` / `deleteSessions()` -> wait for server confirmation or `404`, then remove the session and its persisted state
 - `moveSessionToDirectory()` -> move the session between directory stores and update the global directory index
-- `session.moved` (an agent's `session_move`, another client, or the echo of our own move) -> `adoptSessionMove()` does the same store move, routing registration and open-chat directory switch. A move the event already applied is kept when the request's response lands later. Without this the chat kept reading the source store while sends went to the destination, so a new prompt never appeared until the session was reopened. In a flushed batch the move runs after the stores publish, so the batch cannot write the session back into the source.
+- `session.moved` (an agent's `session_move`, another client, or the echo of our own move) -> `adoptSessionMove()` does the same store move, routing registration and open-chat directory switch. A move the event already applied is kept when the request's response lands later. Without this the chat kept reading the source store while sends went to the destination, so a new prompt never appeared until the session was reopened. A chat pinned in the side panel (a subagent opened from the parent) is not the open chat; it reads the directory its session record names (`usePinnedSessionDirectory`), so it follows the move too instead of freezing at the move step. In a flushed batch the move runs after the stores publish, so the batch cannot write the session back into the source.
 
 ### Blocking-request (form/permission) reply routing
 
@@ -1223,7 +1243,18 @@ keeps the external path. A session
 deep link that launches the desktop app arrives before the renderer listens:
 `main.mjs` keeps it pending and the main window takes it on mount through
 `desktop_take_pending_session_links` (`takePendingDesktopSessionLinks`); a
-late flush still emits it to a renderer that never asks.
+late flush still emits it to a renderer that never asks. A desktop session
+link can name the saved instance that owns the session (`?host=<id>`, `local`
+for the app's own server). Main passes it on as the runtime key a
+notification click carries, and the receiving window routes both the same
+way: a window on that instance opens the session in place, any other hands
+it to `openHostWindow` through `desktop_open_host_session`, together with
+the `?message=` it names. A mini-chat routes them the same way, since with
+the main window closed it is the window that receives them. The renderer
+decides because main cannot: the main window carries no host tag and can
+switch instance in place, so only its runtime key says what it shows. A main
+window switched in place to a direct instance holds a `url:` key, so a link
+that names that instance by id still opens a separate window for it.
 
 On launch the app reopens the session that was open when it closed
 (`sync/last-session-restore.ts`, used by `App` for web and desktop and by the

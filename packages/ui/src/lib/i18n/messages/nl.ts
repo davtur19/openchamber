@@ -15,10 +15,12 @@ import { sessionNoticesI18n } from './session-notices.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { sessionWarmingI18n } from './session-warming.i18n';
+import { heapSnapshotI18n } from './heap-snapshot.i18n';
 import { overviewI18n } from './overview.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
 import { stacksI18n } from './stacks.i18n';
+import { changeReviewI18n } from './change-review.i18n';
 import { projectActionsI18n } from './project-actions.i18n';
 import { gitIdentityEditorI18n } from './git-identity-editor.i18n';
 import { environmentI18n } from './environment.i18n';
@@ -27,6 +29,7 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
 import { diffFindI18n } from './diff-find.i18n';
+import { guestStatusViewI18n } from './guest-status-view.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode is inbegrepen bij OpenChamber. Werk OpenChamber bij om OpenCode v2 te krijgen.",
@@ -57,6 +60,7 @@ export const dict = {
   'commitComparison.mode': 'Commit',
   'pullRequestComparison.select': 'Kies een pull request',
   'pullRequestComparison.pickAbove': 'Kies hierboven een pull request',
+  'pullRequestComparison.diffUnavailable': "{provider} levert geen diffs van pull requests, dus die kunnen hier niet worden getoond of doorgelopen",
   'pullRequestComparison.partial': 'Sommige pull requests konden niet worden geladen',
   'commitComparison.select': 'Kies een commit',
   'commitComparison.search': 'Commits zoeken...',
@@ -152,10 +156,12 @@ export const dict = {
   ...usageStatsI18n.nl,
   ...webSearchI18n.nl,
   ...sessionWarmingI18n.nl,
+  ...heapSnapshotI18n.nl,
   ...overviewI18n.nl,
   ...isolatedSpacesI18n.nl,
   ...sourceBoardI18n.nl,
   ...stacksI18n.nl,
+  ...changeReviewI18n.nl,
   ...projectActionsI18n.nl,
   ...gitIdentityEditorI18n.nl,
   ...environmentI18n.nl,
@@ -164,6 +170,7 @@ export const dict = {
   ...pluginsGridI18n.nl,
   ...integrationsCatalogI18n['nl'],
   ...diffFindI18n['nl'],
+  ...guestStatusViewI18n['nl'],
   'terminalView.actions.attachSelection': 'Geselecteerde uitvoer toevoegen',
   'terminalView.actions.copySelection': 'Geselecteerde uitvoer kopiëren',
   'terminalView.toast.selectionCopied': 'Uitvoer gekopieerd',
@@ -1259,7 +1266,6 @@ export const dict = {
   'gitView.pr.mergeMethod.rebase': 'Rebasen en mergen',
   'gitView.pr.mergeMethod.squash': 'Squashen en mergen',
   'gitView.pr.notMergeable': 'Niet te mergen',
-  'gitView.pr.numberLabel': 'PR #{number}',
   'gitView.pr.segment.checks': 'Checks',
   'gitView.pr.comments.addAll': 'Alles aan chat toevoegen',
   'gitView.pr.placeholder.additionalContext': 'Beperkingen, uitrolnotities of context voor de reviewer...',
@@ -1386,6 +1392,7 @@ export const dict = {
   'gitView.mr.comparison.mode': 'Merge requests',
   'gitView.mr.comparison.select': 'Kies een merge request',
   'gitView.mr.comparison.pickAbove': 'Kies hierboven een merge request',
+  'gitView.mr.comparison.diffUnavailable': "{provider} levert geen diffs van merge requests, dus die kunnen hier niet worden getoond of doorgelopen",
   'gitView.mr.comparison.partial': 'Sommige merge requests konden niet worden geladen',
   'gitView.mr.comparison.searchPlaceholder': 'Merge requests zoeken',
   'gitView.mr.comparison.loading': 'Merge requests laden...',
@@ -1395,9 +1402,6 @@ export const dict = {
   'gitView.mr.comparison.loadMoreFailed': 'Kan niet meer merge requests laden',
   'gitView.mr.walkthroughScope': 'MR !{number}',
   'gitView.mr.createHint': 'Maak en beheer merge requests vanuit deze branch.',
-  'header.gitlab.connectedWithLogin': 'GitLab: {login}',
-  'header.gitlab.connected': 'GitLab verbonden',
-  'header.gitlab.accountsTitle': 'GitLab-accounts',
   'contextPanel.mode.context': 'Context',
   'contextPanel.mode.preview': 'Voorbeeld',
   'contextPanel.mode.browser': 'Browser',
@@ -2027,14 +2031,11 @@ export const dict = {
   'inlineComment.actions.editComment': 'Commentaar bewerken',
   'inlineComment.actions.deleteComment': 'Commentaar verwijderen',
   'inlineComment.toast.selectSessionToSave': 'Selecteer een sessie om het commentaar op te slaan',
-  'header.github.connectedWithLogin': 'GitHub: {login}',
-  'header.github.connected': 'GitHub verbonden',
-  'header.github.avatarWithLogin': 'Avatar van {login}',
-  'header.github.avatar': 'GitHub-avatar',
-  'header.gitlab.avatar': 'GitLab-avatar',
-  'header.github.accountsTitle': 'GitHub-accounts',
-  'header.github.accountSource.oauth': 'OAuth',
-  'header.github.accountSource.cli': 'CLI',
+  'header.sourceControl.connectedWithLogin': '{provider}: {login}',
+  'header.sourceControl.connected': '{provider} verbonden',
+  'header.sourceControl.avatarWithLogin': 'Avatar van {login}',
+  'header.sourceControl.avatar': '{provider}-avatar',
+  'header.sourceControl.accountsTitle': '{provider}-accounts',
   'header.services.openWithCurrent': 'Instantie, gebruik en MCP openen (huidig: {current})',
   'header.services.open': 'Diensten, gebruik en MCP openen',
   'header.services.title': 'Diensten',
@@ -2282,8 +2283,8 @@ export const dict = {
   'session.newWorktree.remoteBranches': 'Remote branches',
   'session.newWorktree.branchName': 'Branchnaam',
   'session.newWorktree.branchNamePlaceholder': 'feature/my-awesome-feature',
-  'session.newWorktree.actions.startFromGitHubIssuePr': 'Starten vanuit GitHub-issue/PR',
-  'session.newWorktree.actions.startFromGitLabIssueMr': 'Een GitLab-issue of merge request',
+  'session.newWorktree.actions.startFromRepository.pullRequest': 'Starten vanuit {provider}-issue/PR',
+  'session.newWorktree.actions.startFromRepository.mergeRequest': 'Een {provider}-issue of merge request',
   'session.newWorktree.worktreeDirectory': 'Worktreemap',
   'session.newWorktree.worktreeDirectoryPlaceholder': 'my-worktree-directory',
   'session.newWorktree.resetToMatchBranchName': 'Resetten naar branchnaam',
@@ -2291,7 +2292,6 @@ export const dict = {
   'session.newWorktree.selectSourceBranch': 'Bronbranch selecteren',
   'session.newWorktree.selectSourceBranchPlaceholder': 'Selecteer bronbranch...',
   'session.newWorktree.issueNumber': 'Issue #{number}',
-  'session.newWorktree.prNumber': 'PR #{number}',
   'session.newWorktree.includeDiffBadge': '+diff',
   'session.newWorktree.fromSource': 'uit {source}',
   'session.newWorktree.actions.cancel': 'Annuleren',
@@ -2598,7 +2598,6 @@ export const dict = {
   'chat.chatInput.linked.byAuthor': 'door {author}',
   'chat.chatInput.linked.issue.openInBrowserAria': 'Issue in de browser openen',
   'chat.chatInput.linked.issue.removeAria': 'Gekoppeld issue verwijderen',
-  'chat.chatInput.linked.pr.number': 'PR #{number}',
   'chat.chatInput.linked.pr.openInBrowserAria': 'Pull request in de browser openen',
   'chat.chatInput.linked.mr.openInBrowserAria': 'Merge request openen in browser',
   'chat.chatInput.linked.pr.removeAria': 'Gekoppelde pull request verwijderen',
@@ -2723,6 +2722,7 @@ export const dict = {
    'chat.toolPart.showFormattedJson': 'Opgemaakte JSON tonen',
    'chat.toolPart.showNavigableJson': 'Navigeerbare JSON tonen',
    'chat.toolPart.openFile': 'Bestand openen',
+   'chat.toolPart.openImageExpanded': 'Openen',
    'chat.toolPart.openFileAtFirstChange': 'Bestand openen bij eerste wijziging',
    'chat.toolPart.openFileDiff': 'Bestandsdiff openen',
   'chat.toolPart.copyOutput': 'Uitvoer kopiëren',
@@ -3454,6 +3454,7 @@ export const dict = {
   'mainLayout.mobile.closeDrawerAria': 'Mobiel paneel sluiten',
   'sortableTabsStrip.aria.tabs': 'Tabbladen',
   'openChamberLogo.aria.logo': 'OpenChamber-logo',
+  'markdownRenderer.code.proposal': 'Voorstel',
   'markdownRenderer.code.actions.copyTitle': 'Code kopiëren',
   'markdownRenderer.code.actions.copiedTitle': 'Gekopieerd',
   'markdownRenderer.table.actions.copyTitle': 'Tabel kopiëren',
@@ -3592,8 +3593,7 @@ export const dict = {
   'chat.workStatus.pinned.unpinFailed': 'Kan de vastzetting niet opheffen',
   'chat.workStatus.action.openContext': 'Contextpaneel openen',
   'chat.workStatus.section.linkedIssues': 'Gekoppeld',
-  'chat.workStatus.linkedIssues.open': '#{number} openen op GitHub',
-  'chat.workStatus.linkedIssues.openGitLab': '{reference} openen op GitLab',
+  'chat.workStatus.linkedIssues.openOnProvider': '{reference} openen op {provider}',
   'chat.workStatus.linkedIssues.unlink': 'Koppeling verwijderen',
   'chat.workStatus.linkedIssues.unlinkFailed': 'Kan de koppeling niet verwijderen',
   'chat.workStatus.linkedIssues.link': 'Koppelen aan sessie',

@@ -352,7 +352,8 @@ export const SETTINGS_REGISTRY = {
 
   // ── Tunnels (instance) ──
   tunnelProvider: field({ scope: 'instance', parse: mapParser(parseNonEmptyTrimmedString, (value) => value.toLowerCase()) }),
-  tunnelMode: field({ scope: 'instance', parse: fromSchema(z.string().transform((value) => value.trim().toLowerCase()).pipe(z.enum(['quick', 'managed-remote', 'managed-local']))) }),
+  tunnelMode: field({ scope: 'instance', parse: fromSchema(z.string().transform((value) => value.trim().toLowerCase()).pipe(z.enum(['quick', 'managed-remote', 'managed-local', 'serve', 'funnel']))) }),
+  tunnelHttpsPort: field({ scope: 'instance', parse: parseIntegerInRange(1, 65535) }),
   tunnelBootstrapTtlMs: field({ scope: 'instance', parse: parseNullableFiniteNumber }),
   tunnelSessionTtlMs: field({ scope: 'instance', parse: parseFiniteNumber }),
   managedLocalTunnelConfigPath: field({ scope: 'instance', parse: parseNullableTrimmedPath }),
@@ -651,6 +652,7 @@ export type DesktopSettings = { -readonly [K in SettingsKey]?: FieldValue<(typeo
 export const LOCAL_DEVICE_KEYS = [
   'theme',
   'isSidebarOpen',
+  'sidebarFoldedForExpandedZone',
   'sidebarWidth',
   'contextPanelByDirectory',
   'contextRailOrder',

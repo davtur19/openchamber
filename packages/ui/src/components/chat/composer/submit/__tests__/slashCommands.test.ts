@@ -51,11 +51,12 @@ describe('findMagicPromptCommand', () => {
     });
 
     test('commands handled elsewhere are not prompt-pair commands', () => {
-        // undo/redo/timeline/compact/handoff-review manipulate state or open
-        // UI rather than sending a message.
+        // undo/redo/timeline/compact/resetid/handoff-review manipulate state or
+        // open UI rather than sending a message.
         expect(findMagicPromptCommand('undo')).toBeNull();
         expect(findMagicPromptCommand('timeline')).toBeNull();
         expect(findMagicPromptCommand('compact')).toBeNull();
+        expect(findMagicPromptCommand('resetid')).toBeNull();
     });
 
     test('an unknown name finds nothing', () => {
@@ -79,6 +80,15 @@ describe('planLocalSlashCommand', () => {
             kind: 'action',
             attachedContext: 'retain',
         });
+    });
+
+    test('/resetid is a session action that sends nothing', () => {
+        expect(planLocalSlashCommand('/resetid', 'normal', true, true)).toEqual({
+            command: { name: 'resetid', argument: '' },
+            kind: 'action',
+            attachedContext: 'retain',
+        });
+        expect(planLocalSlashCommand('/resetid', 'normal', false, false)).toBeNull();
     });
 
     test('prompt commands send attached context instead of disabling command parsing', () => {

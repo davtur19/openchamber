@@ -36,7 +36,7 @@ export interface CommandInfo {
 // Every name the composer runs itself; an extension command with one of
 // these names is dropped before it reaches the list.
 const LOCAL_COMMAND_NAMES = [
-  'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'workspace-review', 'handoff-review',
+  'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'resetid', 'fork', 'btw', 'summary', 'workspace-review', 'handoff-review',
   'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
 ];
 
@@ -157,6 +157,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             { id: 'openchamber:redo', name: 'redo', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.redoDescription'), isBuiltIn: true },
             { id: 'openchamber:timeline', name: 'timeline', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.timelineDescription'), isBuiltIn: true },
             { id: 'openchamber:compact', name: 'compact', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.compactDescription'), isBuiltIn: true },
+            { id: 'openchamber:resetid', name: 'resetid', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.resetIdentityDescription'), isBuiltIn: true },
           ]
         : []
       ),

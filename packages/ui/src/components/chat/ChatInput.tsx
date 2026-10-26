@@ -1859,6 +1859,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     await sessionActions.waitForConnectionOrThrow();
                     const compactDirectory = useSessionUIStore.getState().getDirectoryForSession(currentSessionId) || currentDirectory || undefined;
                     await opencodeClient.compactSession(currentSessionId, compactDirectory);
+                } else if (actionName === 'resetid') {
+                    await sessionActions.waitForConnectionOrThrow();
+                    const resetDirectory = useSessionUIStore.getState().getDirectoryForSession(currentSessionId) || currentDirectory || undefined;
+                    await opencodeClient.resetSessionIdentity(currentSessionId, resetDirectory);
+                    toast.success(t('chat.chatInput.toast.resetIdentitySuccess'));
                 }
             } catch (error) {
                 restoreComposerText();
@@ -1868,8 +1873,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         : getSubmitErrorMessage(error, t('chat.chatInput.toast.forkFailed')));
                     return;
                 }
-                if (actionName !== 'compact') throw error;
-                toast.error(getSubmitErrorMessage(error, t('chat.chatInput.toast.compactFailed')));
+                if (actionName !== 'compact' && actionName !== 'resetid') throw error;
+                toast.error(getSubmitErrorMessage(error, t(actionName === 'compact'
+                    ? 'chat.chatInput.toast.compactFailed'
+                    : 'chat.chatInput.toast.resetIdentityFailed')));
             }
             return;
         }

@@ -1558,6 +1558,30 @@ class OpencodeService {
   }
 
   /**
+   * Rotates the provider-facing session identity without compacting or touching
+   * history. The bundled client predates the route, so it is called directly.
+   * The next model request uses the new alias and environment id.
+   */
+  async resetSessionIdentity(sessionId: string, directory?: string | null): Promise<{ environmentID: string }> {
+    return call("session.identity.reset", async () => {
+      const resolved = this.resolveDirectory(directory)
+      const response = await runtimeFetch(
+        `${this.baseUrl.replace(/\/+$/, "")}/session/${encodeURIComponent(sessionId)}/identity/reset`,
+        {
+          method: "POST",
+          directory: resolved,
+          headers: resolved ? { [OPENCODE_DIRECTORY_HEADER]: encodeURIComponent(resolved) } : undefined,
+        },
+      )
+      if (!response.ok) {
+        throw await response.json().catch(() => new Error(`unexpected status ${response.status}`))
+      }
+      const body = (await response.json()) as { data: { environmentID: string } }
+      return body.data
+    })
+  }
+
+  /**
    * Forks the session. `before` copies the transcript up to but excluding that
    * message; omitting it copies the whole transcript (OpenCode 2.0.8 replaced
    * the `boundary` object with this single optional message id).

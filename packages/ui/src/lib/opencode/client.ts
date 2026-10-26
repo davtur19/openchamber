@@ -495,6 +495,9 @@ export type SessionPage = {
 // The global list carries the mark beside the SDK's own fields; the SDK types do not know it.
 const sessionPageSpacesSchema = z.object({ spaces: z.array(spaceMarkSchema).optional() })
 
+// The bundled client predates the identity-reset route, so it is called by hand.
+const sessionIdentityResetSchema = z.object({ data: z.object({ environmentID: z.string() }) })
+
 export type SessionListOptions = {
   directory?: string | null
   /** No directory filter at all: every session the server knows. */
@@ -1600,7 +1603,7 @@ class OpencodeService {
       if (!response.ok) {
         throw await response.json().catch(() => new Error(`unexpected status ${response.status}`))
       }
-      const body = (await response.json()) as { data: { environmentID: string } }
+      const body = sessionIdentityResetSchema.parse(await response.json())
       return body.data
     })
   }

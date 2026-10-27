@@ -9,6 +9,8 @@ import { createNotificationTemplateRuntime } from './template-runtime.js';
  * carries the finish. What is pinned here: the finish is announced with the
  * agent and model from the start, a user abort announces nothing, and an
  * active goal (which lives in OpenChamber's own metadata) silences the push.
+ * The error push is pinned to the terminal execution failure: a step that
+ * fails and is retried or continued inside its turn announces nothing.
  */
 const makeRuntime = ({ metadata = {}, settings = {} } = {}) => {
   const emitDesktopNotification = vi.fn(() => true);
@@ -100,6 +102,43 @@ describe('ready notification on v2 step events', () => {
     await runtime.maybeSendPushForTrigger(turnEnded('ses_3'));
 
     expect(emitDesktopNotification).not.toHaveBeenCalled();
+  });
+});
+
+const stepFailed = (sessionID, id, error) => ({
+  type: 'message.updated',
+  properties: { sessionID, info: { id, sessionID, role: 'assistant', finish: 'error', error, time: { completed: 2 } } },
+});
+
+const turnFailed = (sessionID, error) => ({ type: 'session.error', properties: { sessionID, error } });
+
+describe('error notification on v2 step events', () => {
+  const cause = { name: 'provider.invalid-output', type: 'provider.invalid-output', message: 'The provider response went silent without completing.' };
+
+  it('stays quiet when a failed step is retried inside the turn', async () => {
+    const { runtime, emitDesktopNotification } = makeRuntime();
+
+    await runtime.maybeSendPushForTrigger(stepStarted('ses_4', 'msg_4'));
+    await runtime.maybeSendPushForTrigger(stepFailed('ses_4', 'msg_4', cause));
+
+    expect(emitDesktopNotification).not.toHaveBeenCalled();
+  });
+
+  it('announces the terminal execution failure once', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { runtime, emitDesktopNotification } = makeRuntime();
+
+    await runtime.maybeSendPushForTrigger(stepStarted('ses_5', 'msg_5'));
+    await runtime.maybeSendPushForTrigger(stepFailed('ses_5', 'msg_5', cause));
+    await runtime.maybeSendPushForTrigger(turnFailed('ses_5', cause));
+
+    expect(emitDesktopNotification).toHaveBeenCalledTimes(1);
+    expect(emitDesktopNotification.mock.calls[0][0]).toMatchObject({
+      kind: 'error',
+      title: 'Tool error',
+      sessionId: 'ses_5',
+      tag: 'error-ses_5',
+    });
   });
 });
 

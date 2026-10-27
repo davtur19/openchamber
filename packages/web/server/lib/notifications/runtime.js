@@ -605,7 +605,12 @@ export const createNotificationTriggerRuntime = (deps) => {
         );
       }
 
-      if (info?.role === 'assistant' && info?.finish === 'error' && sessionId) {
+      // v2 splits a turn into steps, and a failed step is usually retried or
+      // continued inside the same turn, so its durable `session.step.failed`
+      // record is history, not a notification. Only the terminal execution
+      // failure may announce an error, and it arrives here as a synthetic
+      // `message.updated` marked `turnEnded`.
+      if (info?.role === 'assistant' && info?.finish === 'error' && payload.properties?.turnEnded === true && sessionId) {
         const settings = await readSettingsFromDisk();
         if (settings.notifyOnError === false) return;
 

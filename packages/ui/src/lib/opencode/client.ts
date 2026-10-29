@@ -318,6 +318,16 @@ const createTimeoutSignal = (timeoutMs: number): { signal: AbortSignal; cleanup:
  */
 const OPENCODE_REQUEST_TIMEOUT_MS = 30_000
 
+/**
+ * A read that scans history instead of one record. OpenCode's stats route walks
+ * every message in the range, which takes minutes on a large database; the 30s
+ * bootstrap deadline would abort a healthy read. The OpenChamber proxy answers
+ * or cuts the request at four minutes, so this only has to outlast it.
+ */
+const OPENCODE_SLOW_READ_TIMEOUT_MS = 5 * 60_000
+
+const isSlowReadUrl = (url: URL): boolean => url.pathname.endsWith("/api/experimental/session/stats")
+
 const isEventStreamUrl = (url: URL): boolean => url.pathname.endsWith("/event") || url.pathname.endsWith("/log")
 
 /** Header the server reads to resolve a Location; the value is URI-encoded on both ends. */
@@ -328,6 +338,8 @@ type RuntimeOpencodeClientConfig = {
   directory?: string
   /** Read-request timeout in ms. Overridable so tests can use short value. */
   requestTimeoutMs?: number
+  /** Deadline for history scans in ms. Overridable so tests can use short value. */
+  slowReadTimeoutMs?: number
 }
 
 /**
@@ -350,12 +362,14 @@ const requestMethodOf = (input: string | URL | Request, init?: RequestInit): str
 
 export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig): OpenCodeClient => {
   const requestTimeoutMs = config.requestTimeoutMs ?? OPENCODE_REQUEST_TIMEOUT_MS
+  const slowReadTimeoutMs = config.slowReadTimeoutMs ?? OPENCODE_SLOW_READ_TIMEOUT_MS
   const send = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = requestUrlOf(input)
     if (isEventStreamUrl(url) || requestMethodOf(input, init) === "POST") {
       return validateRuntimeResponse(await runtimeFetch(input, init))
     }
-    const timeout = createTimeoutSignal(requestTimeoutMs)
+    const deadlineMs = isSlowReadUrl(url) ? slowReadTimeoutMs : requestTimeoutMs
+    const timeout = createTimeoutSignal(deadlineMs)
     const callerSignal = init?.signal !== undefined
       ? init.signal
       : input instanceof Request ? input.signal : undefined
@@ -402,7 +416,7 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
       return response
     } catch (error) {
       if (timeout.signal.aborted && !callerSignal?.aborted) {
-        throw new Error(`OpenCode request timed out after ${requestTimeoutMs}ms`)
+        throw new Error(`OpenCode request timed out after ${deadlineMs}ms`)
       }
       throw error
     } finally {

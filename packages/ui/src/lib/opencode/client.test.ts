@@ -963,6 +963,17 @@ describe("read timeouts (#2470)", () => {
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(settled).toBe(false)
   })
+
+  test("a slow stats scan gets its own deadline", async () => {
+    const client = createRuntimeOpencodeClient({
+      baseUrl: "http://runtime.test/api",
+      requestTimeoutMs: 20,
+      slowReadTimeoutMs: 120,
+    })
+    responses.push(HANG)
+    const failure = await client.session.stats({ timezone: "UTC", tools: "none" }).catch((error: Error) => error)
+    expect(failure).toMatchObject({ reason: "Transport", cause: { message: "OpenCode request timed out after 120ms" } })
+  })
 })
 
 describe("sendCommand context", () => {

@@ -971,7 +971,7 @@ describe("read timeouts (#2470)", () => {
       slowReadTimeoutMs: 120,
     })
     responses.push(HANG)
-    const failure = await client.session.stats({ timezone: "UTC", tools: "none" }).catch((error: Error) => error)
+    const failure = await client.experimental.session.stats({ timezone: "UTC", tools: "none" }).catch((error: Error) => error)
     expect(failure).toMatchObject({ reason: "Transport", cause: { message: "OpenCode request timed out after 120ms" } })
   })
 })

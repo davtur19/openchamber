@@ -76,6 +76,13 @@ const createOpenCode = () => {
     const method = init.method ?? 'GET';
     if (pathname === '/api/session/active') return json({ data: state.active });
     if (pathname === '/api/session' && method === 'GET') return json({ data: [], cursor: {} });
+    // Session lineage, as the activity probe reads it when it walks active ids.
+    const lineage = pathname.match(/^\/api\/session\/([^/]+)$/);
+    if (lineage) {
+      const id = decodeURIComponent(lineage[1]);
+      if (!state.records[id]) return json({ error: 'not found' }, 404);
+      return json({ data: { id, parentID: null } });
+    }
     const match = pathname.match(/^\/api\/session\/([^/]+)\/(message|prompt|synthetic)$/);
     if (!match) return json({ error: 'not found' }, 404);
     const sessionID = decodeURIComponent(match[1]);

@@ -434,7 +434,7 @@ export function createPrWatchRuntime({
     if (!isCurrent(watch)) return undefined;
     if (!statuses) return retry(watch, 'OpenCode could not be asked');
     if (statuses[sessionID]) return undefined; // its idle event arms the next attempt
-    const subagents = await activityProbe.hasWorkingChildren(sessionID, statuses);
+    const subagents = await activityProbe.hasWorkingDescendants(sessionID, statuses);
     if (!isCurrent(watch)) return undefined;
     if (subagents === null) return retry(watch, 'OpenCode could not be asked');
     if (subagents) return arm(sessionID, subagentRecheckMs);

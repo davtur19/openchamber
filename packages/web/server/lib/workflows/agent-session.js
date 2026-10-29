@@ -140,7 +140,7 @@ export const createWorkflowAgentSessions = ({
       if (signal.aborted) throw new WorkflowAgentStopped();
       const statuses = await activityProbe.fetchActiveSessionStatuses();
       if (statuses && !statuses[sessionId]) {
-        const working = await activityProbe.hasWorkingChildren(sessionId, statuses);
+        const working = await activityProbe.hasWorkingDescendants(sessionId, statuses);
         if (working === false) {
           const records = await readRecords(client, sessionId).catch(() => null);
           const outcome = records ? readDispatchOutcome(records, 0, afterIdleId) : null;

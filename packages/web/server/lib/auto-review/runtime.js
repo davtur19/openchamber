@@ -383,7 +383,7 @@ export function createAutoReviewRuntime({
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) return null;
     if (statuses[sessionID]) return { kind: 'running' };
-    const subagentsWorking = await activityProbe.hasWorkingChildren(sessionID, statuses);
+    const subagentsWorking = await activityProbe.hasWorkingDescendants(sessionID, statuses);
     if (subagentsWorking === null) return null;
     if (subagentsWorking) return { kind: 'subagents' };
     try {

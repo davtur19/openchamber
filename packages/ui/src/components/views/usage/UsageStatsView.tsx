@@ -62,8 +62,8 @@ const RANGE_LABEL_KEYS = {
 
 /**
  * The cached report for the chosen range and project (by directory). A key
- * with nothing cached loads on first view; a cached key never refetches on
- * its own. See `usageStatsStore.ts`.
+ * with nothing cached loads on first view; a stale cached key shows at once
+ * and refreshes in the background. See `usageStatsStore.ts`.
  */
 function useUsageStats(range: UsageRange, projectDirectory: string | null) {
   const request = React.useMemo(() => ({ range, projectDirectory }), [range, projectDirectory]);

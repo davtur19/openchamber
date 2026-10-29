@@ -321,8 +321,9 @@ const OPENCODE_REQUEST_TIMEOUT_MS = 30_000
 /**
  * A read that scans history instead of one record. OpenCode's stats route walks
  * every message in the range, which takes minutes on a large database; the 30s
- * bootstrap deadline would abort a healthy read. The OpenChamber proxy answers
- * or cuts the request at four minutes, so this only has to outlast it.
+ * bootstrap deadline would abort a healthy read. The proxy allows this route
+ * six minutes, so this five-minute deadline is the real ceiling: the proxy's
+ * cut only catches a read the client has already given up on.
  */
 const OPENCODE_SLOW_READ_TIMEOUT_MS = 5 * 60_000
 

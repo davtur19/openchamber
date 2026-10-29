@@ -75,6 +75,28 @@ const OPENCODE_AGENT_OPTIONS = {
   timeout: OPENCODE_AGENT_IDLE_TIMEOUT_MS,
 };
 
+/**
+ * The Stats page scans every message in its range, which runs for minutes on a
+ * large history. The UI waits five minutes for it, so the proxy keeps its own
+ * cut longer: a 504 here would reach the page as a failed read before the
+ * client's deadline. Other routes keep the generic four-minute cut.
+ */
+const SESSION_STATS_PROXY_TIMEOUT_MS = 6 * 60 * 1000;
+
+const SESSION_STATS_PATH = '/experimental/session/stats';
+
+/**
+ * Whether a request is the Stats read, as the generic `/api` proxy sees it.
+ * Express strips the mount prefix from `req.url`; a directly invoked handler
+ * may still carry it, so both forms are accepted.
+ */
+const isSessionStatsProxyRequest = (req) => {
+  const rawPath = typeof req?.path === 'string' && req.path.length > 0 ? req.path : req?.url;
+  if (typeof rawPath !== 'string') return false;
+  const path = rawPath.split('?')[0];
+  return (path.startsWith('/api/') ? path.slice(4) : path) === SESSION_STATS_PATH;
+};
+
 const DIAGNOSTIC_PROXY_ERROR_CLASSES = new Map([
   ['ECONNREFUSED', 'connection_refused'],
   ['ECONNRESET', 'connection_reset'],
@@ -388,6 +410,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     SSE_HEARTBEAT_INTERVAL_MS = DEFAULT_SSE_HEARTBEAT_INTERVAL_MS,
     SSE_UPSTREAM_STALL_TIMEOUT_MS = DEFAULT_UPSTREAM_STALL_TIMEOUT_MS,
     SESSION_UPSTREAM_TIMEOUT_MS: sessionUpstreamTimeoutOverrideMs,
+    STATS_REQUEST_TIMEOUT_MS: statsRequestTimeoutOverrideMs,
     getSseUpstreamStallTimeoutMs = () => SSE_UPSTREAM_STALL_TIMEOUT_MS,
     readWorktreeBootstrapStatus = getWorktreeBootstrapStatus,
     WORKTREE_READY_TIMEOUT_MS = 5 * 60 * 1000,
@@ -667,6 +690,9 @@ export const registerOpenCodeProxy = (app, deps) => {
   };
 
   const PROXY_REQUEST_TIMEOUT_MS = normalizeProxyTimeout(LONG_REQUEST_TIMEOUT_MS);
+  const STATS_REQUEST_TIMEOUT_MS = normalizeProxyTimeout(
+    statsRequestTimeoutOverrideMs ?? Math.max(PROXY_REQUEST_TIMEOUT_MS, SESSION_STATS_PROXY_TIMEOUT_MS),
+  );
   // The session routes read OpenCode themselves, so they take the generic
   // proxy's deadline explicitly. The UI waits 30s and retries; a shorter cut
   // here turned a slow but working session open into a 504 retry loop.
@@ -700,7 +726,7 @@ export const registerOpenCodeProxy = (app, deps) => {
       if (sendProxyErrorResponse(res, 504)) {
         res.once('finish', () => req.destroy?.());
       }
-    }, PROXY_REQUEST_TIMEOUT_MS);
+    }, isSessionStatsProxyRequest(req) ? STATS_REQUEST_TIMEOUT_MS : PROXY_REQUEST_TIMEOUT_MS);
     timeout.unref?.();
 
     const clear = () => clearTimeout(timeout);
@@ -1315,6 +1341,9 @@ export const registerOpenCodeProxy = (app, deps) => {
   });
 
   const apiProxy = createApiProxy(PROXY_REQUEST_TIMEOUT_MS);
+  // The Stats read gets the longer deadline the page waits for; every other
+  // route keeps the generic one.
+  const statsProxy = createApiProxy(STATS_REQUEST_TIMEOUT_MS);
 
   // Best-effort fallback for stale clients still sending symlink paths.
   // Settings and project selection normalize at source; this cached async path
@@ -1332,6 +1361,13 @@ export const registerOpenCodeProxy = (app, deps) => {
   });
 
   app.use('/api', applyProxyResponseDeadline);
+  app.use('/api', (req, res, next) => {
+    if (isSessionStatsProxyRequest(req)) {
+      statsProxy(req, res, next);
+      return;
+    }
+    next();
+  });
   // v1's interactive provider/MCP OAuth callbacks are gone: v2 runs provider
   // connection through `/api/integration/*`, which answers immediately and
   // needs no special deadline.

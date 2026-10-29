@@ -39,6 +39,7 @@ import {
   listStashes,
   getWorktrees,
   setWorktreeTaskTitle,
+  setWorktreePinned,
   seedBranchTaskTitle,
   markGeneratedBranchName,
   readRenameableGeneratedBranch,
@@ -3523,6 +3524,37 @@ describe('removeWorktree', () => {
     }
   });
 
+  it('keeps a branch another checkout holds and still removes the worktree', async () => {
+    if (!canRunGit()) return;
+    const fixture = createRemovalWorktree();
+    runGit(fixture.worktree, ['checkout', '--ignore-other-worktrees', 'main']);
+
+    await expect(removeWorktree(fixture.repo, {
+      directory: fixture.worktree,
+      deleteLocalBranch: true,
+    })).resolves.toBe(true);
+
+    expect(fs.existsSync(fixture.worktree)).toBe(false);
+    expect(runGit(fixture.repo, ['show-ref', '--verify', 'refs/heads/main'])).toContain('refs/heads/main');
+  });
+
+  it('keeps the branch a remote names as its default', async () => {
+    if (!canRunGit()) return;
+    const fixture = createRemovalWorktree();
+    runGit(fixture.repo, ['checkout', '-b', 'other']);
+    runGit(fixture.worktree, ['checkout', 'main']);
+    runGit(fixture.repo, ['update-ref', 'refs/remotes/origin/main', 'main']);
+    runGit(fixture.repo, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+
+    await expect(removeWorktree(fixture.repo, {
+      directory: fixture.worktree,
+      deleteLocalBranch: true,
+    })).resolves.toBe(true);
+
+    expect(fs.existsSync(fixture.worktree)).toBe(false);
+    expect(runGit(fixture.repo, ['show-ref', '--verify', 'refs/heads/main'])).toContain('refs/heads/main');
+  });
+
   it.each(['file', 'symlink'])('preserves a concurrent .git %s installed before conversion claims the entry', async (kind) => {
     if (!canRunGit() || process.platform === 'win32') return;
     const fixture = createRemovalWorktree();
@@ -4460,6 +4492,65 @@ describe('removeWorktree', () => {
       expect(fs.existsSync(created.path)).toBe(false);
     } finally {
       Object.defineProperty(process, 'platform', platform);
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  });
+
+  // Git drops the registration once it starts deleting, whatever stops it
+  // then; on Windows a path too long for git did (issue #5734) and the archive
+  // left a half-deleted folder. A read-only directory stops git the same way
+  // here, and the release that makes it writable stands for the long-path-aware
+  // removal that finishes the job; left read-only, it stands for a leftover
+  // nothing can delete, which the message then names.
+  it.each([
+    { finished: true },
+    { finished: false },
+  ])('finishes deleting a worktree git unregistered before it failed (cleanup finished: $finished)', async ({ finished }) => {
+    if (!canRunGit() || process.platform === 'win32' || process.getuid?.() === 0) return;
+
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    process.env.XDG_DATA_HOME = createTempDir();
+    let held;
+
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      runGit(repo, ['commit', '--allow-empty', '-m', 'init']);
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/stopped-removal',
+        worktreeName: 'stopped-removal',
+      });
+      await expect.poll(async () => (await getWorktreeBootstrapStatus(created.path)).status).not.toBe('pending');
+      held = path.join(created.path, 'node_modules');
+      fs.mkdirSync(held);
+      fs.writeFileSync(path.join(held, 'index.js'), 'module.exports = 1;\n');
+      fs.chmodSync(held, 0o555);
+
+      const disposeInstance = vi.fn(async () => {
+        if (finished && disposeInstance.mock.calls.length === 2) fs.chmodSync(held, 0o755);
+      });
+      const archiving = archiveWorktree(repo, { directory: created.path, id: 'stopped', disposeInstance });
+
+      if (finished) {
+        await expect(archiving).resolves.toMatchObject({ id: 'stopped', branch: 'feature/stopped-removal' });
+        expect(fs.existsSync(created.path)).toBe(false);
+      } else {
+        await expect(archiving).rejects.toMatchObject({
+          code: 'WORKTREE_ARCHIVE_PARTIAL',
+          message: expect.stringContaining(`its folder ${created.path} could not be deleted completely`),
+        });
+      }
+      expect((await listWorktreeArchives(repo)).map((entry) => entry.id)).toEqual(['stopped']);
+    } finally {
+      if (held && fs.existsSync(held)) fs.chmodSync(held, 0o755);
       if (previousXdgDataHome === undefined) {
         delete process.env.XDG_DATA_HOME;
       } else {
@@ -6526,22 +6617,38 @@ describe('worktree task titles', () => {
     expect(await renameGeneratedWorktreeBranch(linked, 'fix/other')).toBeNull();
   });
 
-  it('keeps the recorded prefix of an issue branch when renaming it', async () => {
+  it('records a generated name even while another git process holds the config lock', async () => {
     const { repo, linked } = createLinkedWorktree();
-    runGit(linked, ['branch', '-m', 'feature/task', 'issue-180-merry-salamander']);
-    await markGeneratedBranchName(repo, 'issue-180-merry-salamander', 'issue-180-');
-
-    expect(await renameGeneratedWorktreeBranch(linked, 'fix/documentation-catalog'))
-      .toEqual({ from: 'issue-180-merry-salamander', to: 'issue-180-documentation-catalog' });
+    const lock = path.join(repo, '.git', 'config.lock');
+    fs.writeFileSync(lock, '');
+    // Git holds the lock for a moment, as a worktree being made in the background does.
+    setTimeout(() => fs.rmSync(lock), 120);
+    await markGeneratedBranchName(repo, 'feature/task', 'feature/');
+    expect(await readRenameableGeneratedBranch(linked)).toBe('feature/task');
   });
 
-  it('takes a name that already carries the prefix as it is', async () => {
+  const renameItemBranch = async (placeholder, prefix, requested) => {
     const { repo, linked } = createLinkedWorktree();
-    runGit(linked, ['branch', '-m', 'feature/task', 'issue-180-merry-salamander']);
-    await markGeneratedBranchName(repo, 'issue-180-merry-salamander', 'issue-180-');
+    runGit(linked, ['branch', '-m', 'feature/task', placeholder]);
+    await markGeneratedBranchName(repo, placeholder, prefix);
+    return (await renameGeneratedWorktreeBranch(linked, requested))?.to;
+  };
 
-    expect(await renameGeneratedWorktreeBranch(linked, 'issue-180-docs-catalog'))
-      .toEqual({ from: 'issue-180-merry-salamander', to: 'issue-180-docs-catalog' });
+  it('puts the item key of an issue branch in front of the last segment of the agent\'s name', async () => {
+    expect(await renameItemBranch('issue-180-merry-salamander', 'issue-180-', 'fix/documentation-catalog'))
+      .toBe('fix/180-documentation-catalog');
+    expect(await renameItemBranch('issue-ENG-12-merry-salamander', 'issue-ENG-12-', 'fix/docs-catalog'))
+      .toBe('fix/eng-12-docs-catalog');
+    expect(await renameItemBranch('discussion-12-merry-salamander', 'discussion-12-', 'docs-catalog'))
+      .toBe('discussion-12-docs-catalog');
+  });
+
+  it('takes a name that already carries the item key as it is', async () => {
+    expect(await renameItemBranch('issue-180-merry-salamander', 'issue-180-', 'issue-180-docs-catalog')).toBe('issue-180-docs-catalog');
+    expect(await renameItemBranch('issue-180-merry-salamander', 'issue-180-', 'fix/180-docs-catalog')).toBe('fix/180-docs-catalog');
+    expect(await renameItemBranch('issue-ENG-12-merry-salamander', 'issue-ENG-12-', 'fix/ENG-12-docs')).toBe('fix/ENG-12-docs');
+    // 1800 is not 180.
+    expect(await renameItemBranch('issue-180-merry-salamander', 'issue-180-', 'fix/1800-docs')).toBe('fix/180-1800-docs');
   });
 
   it('refuses a detached worktree, which has no branch to hold a title', async () => {
@@ -6549,5 +6656,21 @@ describe('worktree task titles', () => {
     const detached = path.join(createTempDir(), 'detached');
     runGit(repo, ['worktree', 'add', '--detach', detached]);
     await expect(setWorktreeTaskTitle(detached, { title: 'Name', by: 'user' })).rejects.toMatchObject({ status: 409 });
+    await expect(setWorktreePinned(detached, true)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('pins a worktree in its branch config, listed with the time it was pinned', async () => {
+    const { repo, linked } = createLinkedWorktree();
+    const entryOf = async () => (await getWorktrees(repo)).find((worktree) => fs.realpathSync(worktree.path) === fs.realpathSync(linked));
+
+    expect((await entryOf())?.pinnedAt).toBeUndefined();
+    expect(await setWorktreePinned(linked, true, 1234)).toEqual({ pinned: true, branch: 'feature/task' });
+    expect((await entryOf())?.pinnedAt).toBe(1234);
+    // Pinning again keeps the first pin's time.
+    await setWorktreePinned(linked, true, 5678);
+    expect((await entryOf())?.pinnedAt).toBe(1234);
+
+    expect(await setWorktreePinned(linked, false)).toEqual({ pinned: false, branch: 'feature/task' });
+    expect((await entryOf())?.pinnedAt).toBeUndefined();
   });
 });

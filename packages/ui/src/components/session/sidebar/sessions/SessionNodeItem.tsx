@@ -26,8 +26,10 @@ import { canUseElectronDesktopIPC, getMiniChatRuntimeArgs, invokeDesktop, isVSCo
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { isSessionPinned } from '@/lib/sessionPins';
-import { toggleSessionPin } from '@/sync/session-pins';
+import { getSessionPinList, isSessionPinned } from '@/lib/sessionPins';
+import { setSessionPinList } from '@/sync/session-pins';
+import { PinToMenu } from '../sections/PinToMenu';
+import { DEFAULT_PIN_LIST } from '@/lib/sidebarSections';
 import { Icon } from "@/components/icon/Icon";
 import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, getExportRevealLabelKey, revealExportedMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
 import type { ChildSessionExport } from '@/lib/exportSession';
@@ -114,6 +116,7 @@ export type SessionNodeItemProps = {
   groupDirectory?: string | null;
   projectId?: string | null;
   folderOwnerKey?: string | null;
+  ownerProjectId?: string | null;
   selectionScopeKey?: string | null;
   archivedBucket?: boolean;
   pinnedSessionIds: Set<string>;
@@ -306,6 +309,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     groupDirectory,
     projectId,
     folderOwnerKey,
+    ownerProjectId,
     selectionScopeKey: explicitSelectionScopeKey,
     archivedBucket = false,
     pinnedSessionIds,
@@ -451,11 +455,11 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const isActive = isCurrentSession && !runOverviewOpen;
 
   const sessionDirectory = normalizePath(session.directory ?? null) ?? normalizePath(groupDirectory ?? null);
-  // Ref chips open their item in the Tracker through the row's project. The
-  // project's root path resolves without the live worktree map, which a
-  // session in a worktree outside the root does not until that map arrives.
+  const sessionProjectId = ownerProjectId === undefined ? projectId : ownerProjectId;
+  // A nested cross-project row uses its own repository for Tracker links.
+  // The project root also resolves before the live worktree map arrives.
   const projectRootDirectory = useProjectsStore((state) =>
-    projectId ? state.projects.find((entry) => entry.id === projectId)?.path ?? null : null,
+    sessionProjectId ? state.projects.find((entry) => entry.id === sessionProjectId)?.path ?? null : null,
   );
   const trackerDirectory = projectRootDirectory ?? sessionDirectory;
   // Multi-select scope: sessions are flat per project, so selection groups by
@@ -464,6 +468,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const selectionScopeKey = explicitSelectionScopeKey !== undefined
     ? explicitSelectionScopeKey
     : projectId ?? sessionDirectory ?? null;
+  const hasFolderMutationAuthority = folderOwnerKey === undefined ? true : Boolean(folderOwnerKey);
   const loadExportRecords = useSessionMessageRecordsForExport();
   const prefetchSessionMessages = usePrefetchSessionMessages();
   // Same gate as the sidebar's neighbor prefetch: the VS Code webview keeps
@@ -1239,19 +1244,22 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
         {t('sessions.sidebar.session.menu.copyId')}
       </Item>
       </SessionMenuItemHint>
-      <SessionMenuItemHint hint={isPinnedSession ? t('sessions.sidebar.session.menuHint.unpin') : t('sessions.sidebar.session.menuHint.pin')}>
-      <Item
-        onClick={() => {
+      <PinToMenu
+        slots={{ Item, Separator, Sub, SubTrigger, SubContent }}
+        current={isPinnedSession ? getSessionPinList(session) ?? DEFAULT_PIN_LIST : null}
+        triggerClassName="[&>svg]:me-1"
+        itemClassName="[&>svg]:me-1"
+        onPin={(list) => {
           if (!sessionDirectory) return;
-          const failedKey = isPinnedSession ? 'sessions.sidebar.session.pin.unpinFailed' : 'sessions.sidebar.session.pin.pinFailed';
-          toggleSessionPin({ directory: sessionDirectory, sessionId: session.id }).catch(() => toast.error(t(failedKey)));
+          setSessionPinList({ directory: sessionDirectory, sessionId: session.id }, true, list)
+            .catch(() => toast.error(t('sessions.sidebar.session.pin.pinFailed')));
         }}
-        className="[&>svg]:me-1"
-      >
-        {isPinnedSession ? <Icon name="unpin" className="me-1 h-4 w-4" /> : <Icon name="pushpin" className="me-1 h-4 w-4" />}
-        {isPinnedSession ? t('sessions.sidebar.session.menu.unpin') : t('sessions.sidebar.session.menu.pin')}
-      </Item>
-      </SessionMenuItemHint>
+        onUnpin={() => {
+          if (!sessionDirectory) return;
+          setSessionPinList({ directory: sessionDirectory, sessionId: session.id }, false, null)
+            .catch(() => toast.error(t('sessions.sidebar.session.pin.unpinFailed')));
+        }}
+      />
       {canTrackWork ? (
         <SessionMenuItemHint hint={isInWork ? t('sessions.sidebar.session.menuHint.markDone') : t('sessions.sidebar.session.menuHint.track')}>
         <Item onClick={() => { void toggleSessionWork(); }} className="[&>svg]:me-1">
@@ -1393,7 +1401,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
         </SessionMenuItemHint>
       ) : null}
 
-      {sessionDirectory && !archivedBucket && !isTimelineRow ? (() => {
+      {sessionDirectory && !archivedBucket && !isTimelineRow && hasFolderMutationAuthority ? (() => {
         // Folders are flat per project: list folders from every scope of the
         // owning project (root + all worktrees) so sessions can be filed
         // across worktrees. Each action targets the folder's owning scope,
@@ -1403,8 +1411,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
           const normalized = normalizePath(candidate ?? null);
           if (normalized && !scopes.includes(normalized)) scopes.push(normalized);
         };
-        if (projectId && !isVSCode) {
-          const project = useProjectsStore.getState().projects.find((entry) => entry.id === projectId);
+        if (sessionProjectId && !isVSCode) {
+          const project = useProjectsStore.getState().projects.find((entry) => entry.id === sessionProjectId);
           const projectRoot = normalizePath(project?.path ?? null);
           pushScope(projectRoot);
           if (projectRoot) {
@@ -1438,8 +1446,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                           removeSessionFromFolder(scope, session.id);
                           return;
                         }
-                        if (currentEntry && currentEntry.scope !== scope) {
-                          removeSessionFromFolder(currentEntry.scope, session.id);
+                        for (const candidateScope of scopes) {
+                          if (candidateScope !== scope) removeSessionFromFolder(candidateScope, session.id);
                         }
                         addSessionToFolder(scope, folder.id, session.id);
                       }}>
@@ -1454,8 +1462,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                    const newFolder = createFolderAndStartRename(defaultScope);
                    if (!newFolder) return;
                    pendingFolderCreateRef.current = true;
-                  if (currentEntry && currentEntry.scope !== defaultScope) {
-                    removeSessionFromFolder(currentEntry.scope, session.id);
+                  for (const scope of scopes) {
+                    if (scope !== defaultScope) removeSessionFromFolder(scope, session.id);
                   }
                   addSessionToFolder(defaultScope, newFolder.id, session.id);
                 }}>
@@ -2101,6 +2109,9 @@ const sessionNodeItemPropsChange = (prev: SessionNodeItemProps, next: SessionNod
   if (prev.ownsWork !== next.ownsWork) return 'ownsWork';
   if (prev.groupDirectory !== next.groupDirectory) return 'groupDirectory';
   if (prev.projectId !== next.projectId) return 'projectId';
+  if (prev.ownerProjectId !== next.ownerProjectId) return 'ownerProjectId';
+  if (prev.folderOwnerKey !== next.folderOwnerKey) return 'folderOwnerKey';
+  if (prev.selectionScopeKey !== next.selectionScopeKey) return 'selectionScopeKey';
   if (prev.archivedBucket !== next.archivedBucket) return 'archivedBucket';
   if ((prev.renderContext ?? 'project') !== (next.renderContext ?? 'project')) return 'renderContext';
   if ((prev.detailed ?? false) !== (next.detailed ?? false)) return 'detailed';

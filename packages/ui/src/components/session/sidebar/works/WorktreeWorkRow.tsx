@@ -1,4 +1,5 @@
 import React from 'react';
+import { PinToMenu } from '../sections/PinToMenu';
 import { Icon } from '@/components/icon/Icon';
 import {
   DropdownMenu,
@@ -294,8 +295,10 @@ export function WorktreeWorkRow(props: Props): React.ReactNode {
   // state's colour, named by its tooltip; a click opens it.
   // The second line of a detailed row has room for its number too, which
   // stays neutral: the mark alone carries the state.
+  // A worktree's PR shows only as the tint of its branch mark, with the PR
+  // itself in the tooltip; a space's mark takes no tint, so it keeps the PR mark.
   const refMark = refs.prSummary
-    ? { icon: 'git-pull-request' as const, color: refs.prColor, label: refs.prLabel ?? refs.prReference, text: refs.prReference, url: refs.prSummary.url }
+    ? space ? { icon: 'git-pull-request' as const, color: refs.prColor, label: refs.prLabel ?? refs.prReference, text: refs.prReference, url: refs.prSummary.url } : null
     : refs.primaryIssue
       ? { icon: refs.primaryIssue.icon, color: refs.primaryIssue.color, label: refs.issueItems.map((item) => item.text).join(', '), text: refs.primaryIssue.label, url: refs.primaryIssue.url }
       : null;
@@ -341,10 +344,12 @@ export function WorktreeWorkRow(props: Props): React.ReactNode {
         </Slots.Item>
       ) : null}
       {canPin ? (
-        <Slots.Item onClick={() => { void work.togglePin(); }}>
-          <Icon name={pinned ? 'unpin' : 'pushpin'} className="h-4 w-4" />
-          <span>{pinned ? t('sessions.sidebar.work.menu.unpin') : t('sessions.sidebar.work.menu.pin')}</span>
-        </Slots.Item>
+        <PinToMenu
+          slots={Slots}
+          current={work.pinList}
+          onPin={(list) => { void work.setPin(true, list); }}
+          onUnpin={() => { void work.setPin(false); }}
+        />
       ) : null}
       {projectFolders.length > 0 ? (
         <Slots.Sub>

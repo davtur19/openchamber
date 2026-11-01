@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createNotificationTriggerRuntime } from './runtime.js';
 import { createNotificationTemplateRuntime } from './template-runtime.js';
+import { translateWireEvent } from '../event-stream/translate-v2.js';
 
 /**
  * The "ready" push is built from the translated `message.updated` events.
@@ -137,40 +138,53 @@ describe('ready notification on v2 step events', () => {
   });
 });
 
-const stepFailed = (sessionID, id, error) => ({
-  type: 'message.updated',
-  properties: { sessionID, info: { id, sessionID, role: 'assistant', finish: 'error', error, time: { completed: 2 } } },
-});
+describe('error notification on v2 step failures', () => {
+  const stepFailed = (sessionID, id, error) => translateWireEvent({
+    type: 'session.step.failed',
+    id: `evt_${id}`,
+    created: 3,
+    data: { sessionID, assistantMessageID: id, error },
+  })[0];
 
-const turnFailed = (sessionID, error) => ({ type: 'session.error', properties: { sessionID, error } });
-
-describe('error notification on v2 step events', () => {
-  const cause = { name: 'provider.invalid-output', type: 'provider.invalid-output', message: 'The provider response went silent without completing.' };
-
-  it('stays quiet when a failed step is retried inside the turn', async () => {
-    const { runtime, emitDesktopNotification } = makeRuntime();
-
-    await runtime.maybeSendPushForTrigger(stepStarted('ses_4', 'msg_4'));
-    await runtime.maybeSendPushForTrigger(stepFailed('ses_4', 'msg_4', cause));
-
-    expect(emitDesktopNotification).not.toHaveBeenCalled();
-  });
-
-  it('announces the terminal execution failure once', async () => {
+  it('announces a failed turn, but not one the user interrupted', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { runtime, emitDesktopNotification } = makeRuntime();
 
-    await runtime.maybeSendPushForTrigger(stepStarted('ses_5', 'msg_5'));
-    await runtime.maybeSendPushForTrigger(stepFailed('ses_5', 'msg_5', cause));
-    await runtime.maybeSendPushForTrigger(turnFailed('ses_5', cause));
+    await runtime.maybeSendPushForTrigger(stepFailed('ses_4', 'msg_4', { type: 'aborted', message: 'Step interrupted' }));
+    expect(emitDesktopNotification).not.toHaveBeenCalled();
 
+    await runtime.maybeSendPushForTrigger(stepFailed('ses_5', 'msg_5', {
+      type: 'provider.transport',
+      message: 'Timed out waiting for response data',
+    }));
     expect(emitDesktopNotification).toHaveBeenCalledTimes(1);
-    expect(emitDesktopNotification.mock.calls[0][0]).toMatchObject({
-      kind: 'error',
-      title: 'Tool error',
-      sessionId: 'ses_5',
-      tag: 'error-ses_5',
+    expect(emitDesktopNotification.mock.calls[0][0]).toMatchObject({ kind: 'error' });
+  });
+
+  it('announces exhausted auto-resume attempts and provider execution failures', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { runtime, emitDesktopNotification } = makeRuntime();
+    const execution = (sessionID, error) => translateWireEvent({
+      type: 'session.execution.failed',
+      id: `evt_${sessionID}`,
+      created: 4,
+      data: { sessionID, error },
     });
+
+    for (const event of execution('ses_6', {
+      type: 'aborted',
+      message: 'Execution was interrupted repeatedly and will not be resumed automatically.',
+    })) {
+      await runtime.maybeSendPushForTrigger(event);
+    }
+    expect(emitDesktopNotification).toHaveBeenCalledTimes(1);
+    expect(emitDesktopNotification.mock.calls[0][0]).toMatchObject({ kind: 'error', sessionId: 'ses_6' });
+
+    for (const event of execution('ses_7', { type: 'provider.transport', message: 'Connection reset' })) {
+      await runtime.maybeSendPushForTrigger(event);
+    }
+    expect(emitDesktopNotification).toHaveBeenCalledTimes(2);
+    expect(emitDesktopNotification.mock.calls[1][0]).toMatchObject({ kind: 'error', sessionId: 'ses_7' });
   });
 });
 

@@ -33,11 +33,22 @@ source:
 | `openchamber.memory` | the memory index and when to save |
 | `openchamber.guidance` | when to link, when to draw a page, where the tools are called |
 | `openchamber.checkout` | the directory and branch the session works on |
+| `openchamber.response-style` | the user's current response style |
 
 `sync` writes all of them right before a message goes out: the UI awaits it
 before the prompt request, the queue, scheduled tasks and dispatched sessions
 call it in process. An empty text removes the entry. A key left out of
-`buildKnowledgeEntries` keeps what the session holds.
+`buildKnowledgeEntries` keeps what the session holds. User-facing UI sends pass
+the current style, including main chat, btw forks, UI-queued messages and fusion
+judges. A disabled setting returns empty text and removes the entry. A failed
+settings read omits the style and preserves the existing entry.
+
+Internal subagents, scheduled tasks and multi-run lanes pass an explicit empty
+style to clear one inherited from an earlier user-facing send. A send into the
+user's own session, including `session.send`, server-delivered queued messages,
+review handoffs, review feedback and auto-review, omits the style and preserves
+the entry. A review session starts with no entry of its own, so its sends leave
+it that way too.
 
 OpenCode does the rest. The first values go into the session's system prompt;
 a value that changed or went away is announced to the agent at its next step as
@@ -76,6 +87,18 @@ rather than indexed as empty, which would teach the agent to store again what it
 already has.
 
 Each of the pinned and memory entries is cut at 8,000 characters, and says so.
+The memory index is fitted to that budget before it is cut: whole titles, newest
+first per scope, then a count of the older ones left out and a pointer to
+`memory.list`. A full project store's titles outgrow the budget on their own, and
+cutting the rendered text dropped the newest entries mid-title. Titles carry no
+type tag for the same reason: it cost a sixth of the index and decided nothing.
+The response style keeps the full custom text allowed by settings, up to 50,000
+characters. It has no knowledge-entry truncation budget.
+
+VS Code has no OpenChamber session-knowledge route. Its shared UI writes or
+removes only `openchamber.response-style` through the directory-scoped OpenCode
+SDK before sending. An omitted style still preserves the entry. Web, desktop,
+hosted mobile and Capacitor use the server sync above.
 
 ## When to link
 
@@ -140,6 +163,15 @@ page (`awaitAnswer`) when the user has to choose between visual options; the
 tool description repeats none of it. It goes into `openchamber.guidance`, so a
 change to the text reaches running sessions on their next message.
 
+## When to ask for a secret
+
+A session whose agent has the `openchamber_secret` tool (the setting is on and
+OpenChamber launched OpenCode, read through `isSecretRequestAvailable`) is told
+to ask for any secret on the tool's card and never in the chat
+(`SECRET_REQUEST_GUIDANCE`). An agent needs the rule before it thinks of the
+tool, and a token pasted in the chat stays in the transcript. The tool
+description says only what the card does.
+
 ## When to offer a workflow
 
 A session whose agent has the `openchamber_workflow` tool (a build with
@@ -176,13 +208,12 @@ the attempt from the only person able to judge it.
 Patterns, not a model — this runs on every index build. That buys the blunt
 cases only, which is the honest expectation.
 
-## Shipping dark
+## The memory switch
 
-Agent memory is complete but unreleased. `OPENCHAMBER_MEMORY_ENABLE` decides
-whether it exists in a given process at all: unset, there is no tool, no routes,
-no session index, no settings row and no panel tab — absent rather than switched
-off, which would invite turning on something never announced. The setting itself
-also defaults to off, so setting the variable does not enable memory by itself.
+`agentMemoryToolEnabled` decides whether memory exists for this server: off,
+there is no tool, the routes answer "disabled", sessions get no index, and the
+panel has no tab. It defaults to off, so nobody gets a store written about them
+without turning it on.
 
 Pinned notes and plans are unaffected by the memory switch and remain scoped to
 the session that pinned them.

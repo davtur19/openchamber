@@ -70,6 +70,7 @@ import { TimelineDialog } from './TimelineDialog';
 import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
 import { ChatQuoteHighlightContext, useChatQuoteHighlightStore } from './hooks/chatQuoteHighlightStore';
 import { ChatQuoteHighlightLayer } from './message/ChatQuoteHighlightLayer';
+import { loadQuoteSource as loadQuoteSourceMessage, scrollToQuoteSource as scrollToQuoteSourceMessage } from './quoteNavigation';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
 import { useMessageTTS } from '@/hooks/useMessageTTS';
 import { useAutoReadAloud } from '@/hooks/useAutoReadAloud';
@@ -228,7 +229,7 @@ type ChatViewportProps = {
     messageListRef: React.RefObject<MessageListHandle | null>;
     registerList: (list: TimelineListHandle | null, sessionKey?: string) => void;
     onIsAtEndChange: (isAtEnd: boolean) => void;
-    onListMetricsChange: (metrics: { readonly footerSize: number }) => void;
+    onListMetricsChange: (metrics: { readonly headerSize: number; readonly footerSize: number }) => void;
     onTimelineDataChange: () => void;
     renderedMessages: SessionMessageRecord[];
     isLoadingOlder: boolean;
@@ -850,8 +851,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     // new session id. A pinned column does not subscribe to the selection.
     const globalSessionId = useSessionUIStore((s) => (pinned ? null : s.currentSessionId));
     const globalSessionDirectory = useSessionUIStore((s) => (pinned ? null : s.currentSessionDirectory));
-    const liveSessionId = pinned ? pinnedSelection?.sessionId ?? null : globalSessionId;
     const pinnedSessionDirectory = usePinnedSessionDirectory(pinned ? pinnedSelection : null);
+    const liveSessionId = pinned ? (pinnedSessionDirectory ? pinnedSelection?.sessionId ?? null : null) : globalSessionId;
     const liveSessionDirectory = pinned ? pinnedSessionDirectory : globalSessionDirectory;
     const materializedDraftSessionId = useSessionUIStore((s) => (pinned ? null : s.materializedDraftSessionId));
     const liveSelection = React.useMemo(
@@ -1071,6 +1072,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         ready: hasRenderableSessionSnapshot && sessionMessageLoadState.status === 'ready',
         sessionIsActive,
         reply: latestCompletedReply,
+        history: sessionMessages,
+        olderCompletedReplyIds: sessionMessageLoadState.olderCompletedReplyIds,
         enabled: autoReadAloudEnabled && !pinned,
         play: playAutoReadAloud,
     });
@@ -1313,6 +1316,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     // The timeline controller owns history loading and needs this hook's
     // scroll commands, so the hook reaches the loader through a ref.
     const loadHistoryUntilMessageRef = React.useRef<(messageId: string, maxBatches: number) => Promise<boolean>>(async () => false);
+    const currentSessionKeyRef = React.useRef(currentSessionKey);
+    currentSessionKeyRef.current = currentSessionKey;
     const loadHistoryUntilMessage = React.useCallback(
         (messageId: string, maxBatches: number) => loadHistoryUntilMessageRef.current(messageId, maxBatches),
         [],
@@ -1436,7 +1441,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     // the turn's last block, its footer and the turn-end glide land first. A
     // reader away from the end holds the history, so another column showing
     // this session never cuts what they look at.
-    const turnCount = timelineController.turnIds.length;
+    // Prepending older turns must not re-arm the trim timer.
+    const newestTurnId = timelineController.turnIds[timelineController.turnIds.length - 1] ?? null;
     const isPinnedRef = React.useRef(isPinned);
     isPinnedRef.current = isPinned;
     React.useEffect(() => {
@@ -1446,7 +1452,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             messageLoader.trimHistory({ directory: effectiveSessionDirectory, sessionID: currentSessionId });
         }, HISTORY_TRIM_DELAY_MS);
         return () => window.clearTimeout(timer);
-    }, [active, currentSessionId, effectiveSessionDirectory, messageLoader, sessionIsWorking, turnCount]);
+    }, [active, currentSessionId, effectiveSessionDirectory, messageLoader, sessionIsWorking, newestTurnId]);
     React.useEffect(() => {
         if (isPinned || !currentSessionId || !effectiveSessionDirectory) return;
         return messageLoader.retainSessionHistory({ directory: effectiveSessionDirectory, sessionID: currentSessionId }, 'browsing');
@@ -1485,6 +1491,29 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const controllerLoadHistoryUntilMessage = timelineController.loadHistoryUntilMessage;
     loadHistoryUntilMessageRef.current = (messageId, maxBatches) => controllerLoadHistoryUntilMessage(messageId, { maxBatches });
     const chatQuoteHighlights = useChatQuoteHighlightStore();
+    const loadQuoteSource = React.useCallback(async (messageId: string): Promise<boolean> => {
+        return loadQuoteSourceMessage(messageId, {
+            currentSessionKey,
+            currentSessionKeyRef,
+            onManualNavigation,
+            loadHistoryUntilMessage: controllerLoadHistoryUntilMessage,
+            checkLinkedMessage,
+            onLinkedMessageMissing: handleLinkedMessageMissing,
+        });
+    }, [checkLinkedMessage, controllerLoadHistoryUntilMessage, currentSessionKey, handleLinkedMessageMissing, onManualNavigation]);
+    const scrollToTimelineMessage = timelineController.scrollToMessage;
+    const scrollToQuoteSource = React.useCallback(async (
+        messageId: string,
+        options?: { behavior?: ScrollBehavior },
+    ): Promise<boolean> => {
+        return scrollToQuoteSourceMessage(messageId, {
+            currentSessionKey,
+            currentSessionKeyRef,
+            scrollToTimelineMessage,
+            messageListRef,
+            ...options,
+        });
+    }, [currentSessionKey, scrollToTimelineMessage]);
 
     const navigation = useChatTurnNavigation({
         sessionId: currentSessionId,
@@ -1903,7 +1932,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 		<ChatQuoteHighlightLayer
 			store={chatQuoteHighlights}
 			scrollNode={scrollNode}
-			scrollToMessage={timelineController.scrollToMessage}
+			loadHistoryUntilMessage={loadQuoteSource}
+			scrollToMessage={scrollToQuoteSource}
 		/>
 		<div
 			ref={chatRootRef}

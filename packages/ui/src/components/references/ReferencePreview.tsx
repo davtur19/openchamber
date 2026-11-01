@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenu
 import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import type { CISummary, ChangeRequestListStatus, ChangeRequestRevision, ChangeRequestRevisionKind, RepositoryReference, RepositoryReferenceComment, RepositoryReferenceDetail, TrackerItem, TrackerItemSummary, PullRequestStackLayer } from '@/lib/api/types';
+import { useAvatarImage } from '@/hooks/useAvatarImage';
 import { useEmojiShortcodes } from '@/lib/emoji/shortcodes';
 import { useI18n, type I18nKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ import { buildReferenceTimeline, type ReferenceCommentItem, type ReferenceTimeli
 import { ChecksGlyph, DiscussionCategory, ReferenceLabelChips } from './ReferencePickerRow';
 import { PullStackRows } from './PullStackRows';
 import { useReferenceImagePreview } from './useReferenceImagePreview';
+import { useCopyReferenceLink } from './useCopyReferenceLink';
 import {
     repositoryStateLook,
     labelColor,
@@ -241,6 +243,7 @@ const ReferenceBody: React.FC<{ content: string }> = ({ content }) => {
             className={MARKDOWN_CLASS}
             enableFileReferences={false}
             allowRawHtml
+            singleTilde
             repositoryLinks={links.repository}
             emojiShortcodes={emojiShortcodes}
             directory={links.directory}
@@ -379,6 +382,23 @@ const PullDetailRows: React.FC<{
     );
 };
 
+/** Copies the item's address, beside the link that opens it on its host. */
+const CopyReferenceLinkButton: React.FC<{ url: string; className?: string }> = ({ url, className }) => {
+    const { t } = useI18n();
+    const copyLink = useCopyReferenceLink();
+    return (
+        <button
+            type="button"
+            className={cn('inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', REFERENCE_META_TEXT, className)}
+            aria-label={t('references.link.copy')}
+            title={t('references.link.copy')}
+            onClick={() => copyLink(url)}
+        >
+            <Icon name="link" className="size-3.5" />
+        </button>
+    );
+};
+
 const NO_CHECKS: CachedValue<CISummary | null> = { status: 'ready', value: null };
 
 /**
@@ -422,6 +442,7 @@ const RepositoryPreview: React.FC<{
 }> = ({ reference, pullStatus, detail, purpose, pinned, includeDiff, onIncludeDiffChange, now, footer: footerOverride, pullLinks, reply, labelsControl, reviewersControl, onOpenChecks, commentAttachments, stateMenu, onRefresh, threadActions, onOpenStackLayer, revisionChoice }) => {
     const { t } = useI18n();
     const [refreshing, setRefreshing] = React.useState(false);
+    const { broken: authorBroken, onError } = useAvatarImage(reference.author?.avatarUrl);
     const refresh = onRefresh ? () => {
         setRefreshing(true);
         void onRefresh().finally(() => setRefreshing(false));
@@ -530,11 +551,12 @@ const RepositoryPreview: React.FC<{
                                 <Icon name="refresh" className={cn('size-3.5', refreshing && 'animate-spin')} />
                             </button>
                         ) : null}
+                        <CopyReferenceLinkButton url={reference.url} className={refresh ? undefined : 'ms-auto'} />
                         <a
                             href={reference.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 typography-meta hover:bg-interactive-hover hover:text-foreground', !refresh && 'ms-auto', REFERENCE_META_TEXT)}
+                            className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 typography-meta hover:bg-interactive-hover hover:text-foreground', REFERENCE_META_TEXT)}
                         >
                             {descriptor.label}
                             <Icon name="external-link" className="size-3.5" />
@@ -549,8 +571,12 @@ const RepositoryPreview: React.FC<{
                     {reference.author ? (
                         <MetaRow label={t('references.picker.preview.author')}>
                             <span className="inline-flex items-center gap-1.5">
-                                {reference.author.avatarUrl ? (
-                                    <img src={reference.author.avatarUrl} alt="" className="size-4 rounded-full" loading="lazy" />
+                                {reference.author.avatarUrl && !authorBroken ? (
+                                    <img src={reference.author.avatarUrl} alt="" className="size-4 rounded-full" loading="lazy" onError={onError} />
+                                ) : reference.author.avatarUrl ? (
+                                    <span className="flex size-4 items-center justify-center rounded-full bg-surface-muted text-[0.625rem] leading-none">
+                                        {reference.author.login.slice(0, 1).toUpperCase()}
+                                    </span>
                                 ) : null}
                                 {reference.author.login}
                             </span>
@@ -785,11 +811,12 @@ const TrackerPreview: React.FC<{
                     <div className="flex items-center gap-2">
                         {stateControl ?? (issue.state?.name ? <StatePill icon={look.icon} color={look.color} label={issue.state.name} /> : null)}
                         <span className={cn('truncate typography-meta', REFERENCE_META_TEXT)}>{issue.identifier}</span>
+                        <CopyReferenceLinkButton url={issue.url} className="ms-auto" />
                         <a
                             href={issue.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={cn('ms-auto inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 typography-meta hover:bg-interactive-hover hover:text-foreground', REFERENCE_META_TEXT)}
+                            className={cn('inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 typography-meta hover:bg-interactive-hover hover:text-foreground', REFERENCE_META_TEXT)}
                         >
                             {descriptor.name}
                             <Icon name="external-link" className="size-3.5" />

@@ -12,9 +12,11 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import updaterPkg from 'electron-updater';
+import { z } from 'zod';
 import { ElectronSshManager } from './ssh-manager.mjs';
 import { collectLocalFileDiagnostics, collectSshBufferDiagnostics } from '@openchamber/web/server/lib/diagnostics/local-files.js';
 import { replaceFileWithRetry } from './windows-file-replace.mjs';
+import { persistMainWindowState } from './window-state.mjs';
 import { createTrayController } from './tray.mjs';
 import { applyDevDockIdentity, applyDockBadge } from './dev-dock-identity.mjs';
 import { attachDevWindowTape } from './dev-window-tape.mjs';
@@ -22,6 +24,7 @@ import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
 import { stopEmbeddedServer } from './server-shutdown.mjs';
 import { describeStartupEnvironmentOverrides, resolveStartupUrlProbePlan } from './startup-url-selection.mjs';
 import { clearAppCache } from './app-cache.mjs';
+import { hideWindow, isWindowHidePending, showWindow } from './window-hide.mjs';
 import { parseExternalUrl } from './external-url-policy.mjs';
 import {
   BACKGROUND_START_ARG,
@@ -60,6 +63,13 @@ import {
   wasEarlyWindowClosed,
 } from './early-startup.mjs';
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
+import {
+  LOCAL_HOST_ID,
+  buildStoredHostEntry,
+  normalizeHostUrl,
+  sanitizeClientTokenForStorage,
+  sanitizeHostRelayForStorage,
+} from './desktop-hosts-storage.mjs';
 import { isSplashColor, redactHostsConfigForRemote } from './remote-page-policy.mjs';
 import { connectDefaultSshInstanceAtStartup, resolveDefaultSshInstanceId } from './startup-ssh.mjs';
 import { findReusableHostWindowIndex, normalizeNotificationInput, readTrimmedString, resolveHostEntryForRuntimeKey, resolveSenderHostId, runtimeKeyForDeepLinkHost, stampForwardedNotification } from './notification-host-routing.mjs';
@@ -72,7 +82,7 @@ import { requestRemoteHostUpdate } from './remote-host-update.mjs';
 import { assertUpdaterCapability, readLinuxPackageType } from './updater-capability.mjs';
 import { relaunchAfterExit } from './linux-relaunch.mjs';
 import { installLinuxPackage } from './linux-package-install.mjs';
-import { checkForDesktopUpdate } from './updater-check.mjs';
+import { checkForDesktopUpdate, downloadPendingDesktopUpdate, markDesktopUpdateDownloaded } from './updater-check.mjs';
 import { resolveUpdaterChannel } from './updater-channel.mjs';
 import { convertShortcutComboToAccelerator, MINI_CHAT_GLOBAL_SHORTCUT_SETTING_KEY, normalizeStoredShortcutCombo, selectMiniChatGlobalShortcutAction } from './mini-chat-global-shortcut.mjs';
 import {
@@ -87,7 +97,14 @@ import {
 } from './quake-mode.mjs';
 import { createContextMenuLabels, menuLabel, normalizeMenuLocale, roleMenuItem } from './menu-locales.mjs';
 import { createCopyLinkMenuHook } from './context-menu-clipboard.mjs';
-import { resolveUpdaterFeed } from './updater-feed.mjs';
+import {
+  CANARY_UPDATER_FEED,
+  PRODUCTION_UPDATER_FEED,
+  isCanaryVersion,
+  isUpdateChannel,
+  normalizeUpdateChannel,
+  resolveUpdaterFeed,
+} from './updater-feed.mjs';
 import {
   buildLinuxInstalledApps,
   buildLinuxOpenSpecs,
@@ -118,6 +135,7 @@ import { attachRendererRecovery, takeSafeStart } from './renderer-recovery.mjs';
 import { createLoadFailureWarningFilter } from './load-failure-warnings.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
 import { fetchUpdateNotes } from '@openchamber/web/server/lib/changelog/update-notes.js';
+import { compareVersions } from '@openchamber/web/server/lib/version-order.js';
 import { applyConnectAttemptTimeout } from '@openchamber/web/server/lib/network-defaults.js';
 import { isNetworkAccessBlocked } from '@openchamber/web/server/lib/enterprise-mode.js';
 import { assignInjectedEnv } from '@openchamber/web/server/lib/injected-env.js';
@@ -258,7 +276,6 @@ const MINI_CHAT_WINDOW_HEIGHT = 760;
 const MINI_CHAT_MIN_WINDOW_WIDTH = 360;
 const MINI_CHAT_MIN_WINDOW_HEIGHT = 480;
 const MAX_CAPTURE_PAGE_RECT_AREA = 4_000_000;
-const LOCAL_HOST_ID = 'local';
 const LOCAL_DESKTOP_CLIENT_KIND = 'desktop-local';
 const LOCAL_DESKTOP_CLIENT_DEDUPE_KEY = 'desktop-local';
 // Remote hosts get a regular 'desktop' client (NOT 'desktop-local' — that kind
@@ -273,7 +290,7 @@ const INSTALLED_APPS_CACHE_TTL_SECS = 60 * 60 * 24;
 const INSTALLED_APPS_CACHE_FILE = 'discovered-apps.json';
 // Bump when discovery results change shape or matching semantics change, so cached
 // entries written by an older build are treated as stale and refresh immediately.
-const INSTALLED_APPS_CACHE_VERSION = 2;
+const INSTALLED_APPS_CACHE_VERSION = 3;
 const LINUX_DESKTOP_ENTRIES_CACHE_TTL_MS = 30_000;
 const OPENCODE_SHUTDOWN_GRACE_MS = 100;
 const { autoUpdater } = updaterPkg;
@@ -306,6 +323,12 @@ const state = {
   // path may end the process: the update sequence owns the exit.
   updateInstallPending: false,
   pendingUpdate: null,
+  // The channel the updater's feed was last pointed at (applyUpdaterChannel),
+  // and the update check in flight, if any.
+  updaterChannel: null,
+  updateCheck: null,
+  updateDownloadPromise: null,
+  updateDownloadVersion: null,
   unreachableHosts: new Set(),
   windowCounter: 1,
   // Quake Mode: the main window's normal geometry while it is showing the
@@ -573,7 +596,7 @@ const requestQuitWithConfirmation = async () => {
   if (!visible) {
     const hidden = windows.find((window) => !window.isVisible());
     if (hidden) {
-      hidden.show();
+      showWindow(hidden);
       hidden.focus();
     }
   }
@@ -730,25 +753,6 @@ const getOrCreateDesktopInstallId = async () => {
   return typeof after === 'string' && after.trim() ? after.trim() : generated;
 };
 
-const normalizeHostUrl = (raw) => {
-  const trimmed = typeof raw === 'string' ? raw.trim() : '';
-  if (!trimmed) return null;
-  try {
-    const parsed = new URL(trimmed);
-    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
-    parsed.hash = '';
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-};
-
-const sanitizeHostUrlForStorage = (raw) => normalizeHostUrl(raw);
-const sanitizeClientTokenForStorage = (raw) => {
-  const token = typeof raw === 'string' ? raw.trim() : '';
-  return token.length > 0 ? token : null;
-};
-
 const sameOrigin = (left, right) => {
   if (!left || !right) return false;
   try {
@@ -817,56 +821,6 @@ const isLocalRuntimeUrl = (targetUrl) => {
   }
 };
 
-// A relay host is reached over the E2EE tunnel: it has no http(s) apiUrl, only a
-// { relayUrl (ws/wss), serverId, hostEncPubJwk } descriptor. The relay grant is a
-// one-time pairing artifact and is never persisted.
-const sanitizeHostRelayForStorage = (value) => {
-  if (!value || typeof value !== 'object') return null;
-  const relayUrl = typeof value.relayUrl === 'string' ? value.relayUrl.trim() : '';
-  const serverId = typeof value.serverId === 'string' ? value.serverId.trim() : '';
-  const jwk = value.hostEncPubJwk;
-  if (!relayUrl || !serverId || !jwk || typeof jwk !== 'object' || Array.isArray(jwk)) return null;
-  // Minimal EC public JWK shape check so a malformed descriptor is rejected at
-  // storage time instead of surfacing later as a tunnel handshake failure.
-  if (typeof jwk.kty !== 'string' || typeof jwk.crv !== 'string' || typeof jwk.x !== 'string') return null;
-  try {
-    const parsed = new URL(relayUrl);
-    if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') return null;
-  } catch {
-    return null;
-  }
-  return { relayUrl, serverId, hostEncPubJwk: jwk };
-};
-
-// Shared storage shape for a persisted host. A host may carry a direct HTTP
-// transport, a relay transport, or BOTH (a multi-transport device: direct on
-// the home network, relay away — mirrors the mobile connection model). Returns
-// null for entries that can't be stored (missing id, reserved 'local', or no
-// usable transport at all).
-const buildStoredHostEntry = (entry) => {
-  const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
-  if (!id || id === LOCAL_HOST_ID) return null;
-  const clientToken = sanitizeClientTokenForStorage(entry?.clientToken);
-  const requestHeaders = sanitizeRuntimeRequestHeaders(entry?.requestHeaders);
-  const headerFields = Object.keys(requestHeaders).length > 0 ? { requestHeaders } : {};
-  const tokenField = clientToken ? { clientToken } : {};
-  const labelRaw = typeof entry?.label === 'string' && entry.label.trim() ? entry.label.trim() : '';
-
-  const relay = sanitizeHostRelayForStorage(entry?.relay);
-  const relayField = relay ? { relay } : {};
-  const directUrl = sanitizeHostUrlForStorage(entry?.url);
-  const apiUrl = directUrl ? (sanitizeHostUrlForStorage(entry?.apiUrl) || directUrl) : null;
-
-  if (directUrl) {
-    return { id, label: labelRaw || directUrl, url: directUrl, apiUrl, ...tokenField, ...headerFields, ...relayField };
-  }
-  if (relay) {
-    const url = `relay://${relay.serverId}`;
-    return { id, label: labelRaw || url, url, ...tokenField, ...headerFields, relay };
-  }
-  return null;
-};
-
 const readDesktopHostsConfig = () => {
   const root = readSettingsRoot();
   const hostsRaw = Array.isArray(root.desktopHosts) ? root.desktopHosts : [];
@@ -908,23 +862,15 @@ const writeDesktopHostsConfig = async (config) => {
 };
 
 const writeWindowState = async (browserWindow) => {
-  if (!browserWindow || browserWindow.isDestroyed()) return;
-  if (!state.mainWindow || browserWindow.id !== state.mainWindow.id) return;
   // Quake geometry is transient: persisting it would overwrite the user's
   // normal window bounds with the dropdown size.
-  if (state.quakeActive) return;
-
-  const bounds = browserWindow.getBounds();
-  await mutateSettingsRoot((root) => {
-    if (!browserWindow || browserWindow.isDestroyed()) return root;
-    root.desktopWindowState = {
-      x: bounds.x,
-      y: bounds.y,
-      width: Math.max(bounds.width, MIN_WINDOW_WIDTH),
-      height: Math.max(bounds.height, MIN_WINDOW_HEIGHT),
-      maximized: browserWindow.isMaximized(),
-      fullscreen: browserWindow.isFullScreen(),
-    };
+  await persistMainWindowState({
+    browserWindow,
+    mainWindowId: state.mainWindow?.id,
+    quakeActive: state.quakeActive,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
+    mutateSettingsRoot,
   });
 };
 
@@ -1403,7 +1349,7 @@ const focusForegroundWindow = () => {
   // unless app.focus runs first.
   if (process.platform === 'darwin') app.focus({ steal: true });
   if (target.isMinimized()) target.restore();
-  target.show();
+  showWindow(target);
   target.focus();
   if (typeof target.moveTop === 'function') target.moveTop();
 };
@@ -2144,7 +2090,7 @@ const confirmConnectDeepLink = async (payload) => {
   // BEFORE writing anything to the hosts config. Never surface the token.
   const visible = BrowserWindow.getAllWindows().find((window) => !window.isDestroyed() && window.isVisible());
   if (visible) {
-    visible.show();
+    showWindow(visible);
     visible.focus();
   }
   const options = {
@@ -2200,7 +2146,7 @@ const dispatchDeepLink = (link) => {
       : BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
     if (target) {
       if (target.isMinimized()) target.restore();
-      target.show();
+      showWindow(target);
       target.focus();
     }
     emitToAllWindows('openchamber:deep-link-focus', { reason: link.value || null });
@@ -2351,10 +2297,10 @@ const handleMiniChatGlobalShortcut = () => {
   if (action.type === 'hide' || action.type === 'focus') {
     const target = BrowserWindow.fromId(action.windowId);
     if (!target || target.isDestroyed()) return;
-    if (action.type === 'hide') {
-      target.hide();
+    if (action.type === 'hide' && !isWindowHidePending(target)) {
+      hideWindow(target);
     } else {
-      if (!target.isVisible()) target.show();
+      showWindow(target);
       target.focus();
     }
     return;
@@ -2485,7 +2431,7 @@ const showQuakeWindow = (browserWindow, heightFraction) => {
     if (displayBounds) {
       browserWindow.setBounds(computeQuakeBounds(displayBounds, heightFraction));
     }
-    if (!browserWindow.isVisible()) browserWindow.show();
+    showWindow(browserWindow);
     browserWindow.focus();
     browserWindow.moveTop();
     state.quakeActive = true;
@@ -2496,14 +2442,14 @@ const showQuakeWindow = (browserWindow, heightFraction) => {
   }
 };
 
-const hideQuakeWindow = (browserWindow) => {
+const hideQuakeWindow = (browserWindow, { restoreFullScreen = true } = {}) => {
   if (!browserWindow || browserWindow.isDestroyed()) return;
   try {
     debounceWindowStatePersist(browserWindow, true);
   } catch {
     // Persist is best-effort; hiding must not fail because of it.
   }
-  browserWindow.hide();
+  hideWindow(browserWindow, process.platform, { restoreFullScreen });
 };
 
 // Leaves the dropdown and puts the normal window back: the bounds and the
@@ -2531,7 +2477,7 @@ const handleQuakeModeGlobalShortcut = () => {
   const mainWindow = state.mainWindow && !state.mainWindow.isDestroyed() ? state.mainWindow : null;
   const action = selectQuakeToggleAction({
     windowExists: mainWindow !== null,
-    isVisible: mainWindow?.isVisible() === true,
+    isVisible: mainWindow?.isVisible() === true && !isWindowHidePending(mainWindow),
     isMinimized: mainWindow?.isMinimized() === true,
     isFocused: mainWindow?.isFocused() === true,
   });
@@ -2731,13 +2677,13 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {}, 
     if (!state.quitRequested && shouldHideMainWindowToTray(browserWindow)) {
       debounceWindowStatePersist(browserWindow, true);
       event.preventDefault();
-      browserWindow.hide();
+      hideWindow(browserWindow, process.platform, { restoreFullScreen: false });
       return;
     }
 
     if (!state.quitRequested && shouldHideMainWindowToQuake(browserWindow)) {
       event.preventDefault();
-      hideQuakeWindow(browserWindow);
+      hideQuakeWindow(browserWindow, { restoreFullScreen: false });
       return;
     }
 
@@ -2749,7 +2695,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {}, 
       if (remainingVisible <= 1) {
         debounceWindowStatePersist(browserWindow, true);
         event.preventDefault();
-        browserWindow.hide();
+        hideWindow(browserWindow, process.platform, { restoreFullScreen: false });
         return;
       }
     }
@@ -2920,7 +2866,7 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {}, 
           documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
         });
       }
-      browserWindow.show();
+      showWindow(browserWindow);
       browserWindow.focus();
     });
   }
@@ -3012,7 +2958,7 @@ const activateMainWindow = async (url, localOrigin, bootOutcome, runtimeConfig =
     } else {
       await navigateWindow(mainWindow, url, { allowAbort: true });
     }
-    mainWindow.show();
+    showWindow(mainWindow);
     mainWindow.focus();
     return mainWindow;
   }
@@ -3037,6 +2983,13 @@ const openMainWindow = async () => {
   const host = config.defaultHostId && config.defaultHostId !== LOCAL_HOST_ID
     ? config.hosts.find((entry) => entry.id === config.defaultHostId)
     : null;
+  if (host && state.bootOutcome?.sshStartupFallbackHostId === host.id) {
+    return activateMainWindow(localUiUrl, state.localOrigin, state.bootOutcome, {
+      apiBaseUrl: state.sidecarUrl || state.localOrigin || '',
+      clientToken: readDesktopLocalClientToken(),
+      requestHeaders: {},
+    });
+  }
   const relayHost = host && host.relay && typeof host.relay === 'object' ? host : null;
   if (relayHost) {
     // Relay hosts have no reachable HTTP base. Boot the LOCAL UI with the local
@@ -3152,7 +3105,7 @@ const openHostWindow = async (host, route = null, { reuseOpenWindow = false } = 
     // Activate first, the same way focusForegroundWindow does.
     if (process.platform === 'darwin') app.focus({ steal: true });
     if (existing.isMinimized()) existing.restore();
-    existing.show();
+    showWindow(existing);
     existing.focus();
     if (!route) return;
     // A window still booting has no listener yet; it reloads on the route.
@@ -3264,7 +3217,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
     const existing = state.miniChatWindowsBySession.get(sessionWindowKey);
     if (existing && !existing.isDestroyed()) {
       if (existing.isMinimized()) existing.restore();
-      existing.show();
+      showWindow(existing);
       existing.focus();
       return existing;
     }
@@ -3345,7 +3298,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   }
 
   browserWindow.once('ready-to-show', () => {
-    browserWindow.show();
+    showWindow(browserWindow);
     browserWindow.focus();
   });
 
@@ -3619,15 +3572,40 @@ const resolveInitialUrl = async ({ onPlainLocalBoot = null } = {}) => {
   return { initialUrl, localOrigin, localUiUrl, bootOutcome, apiBaseUrl, clientToken, requestHeaders };
 };
 
-const compareSemver = (left, right) => {
-  const a = String(left || '').replace(/^v/, '').split('.').map((value) => Number.parseInt(value || '0', 10));
-  const b = String(right || '').replace(/^v/, '').split('.').map((value) => Number.parseInt(value || '0', 10));
-  const length = Math.max(a.length, b.length);
-  for (let index = 0; index < length; index += 1) {
-    const diff = (a[index] || 0) - (b[index] || 0);
-    if (diff !== 0) return diff;
+const UPDATER_E2E_BUILD = typeof __OPENCHAMBER_UPDATER_E2E_BUILD__ !== 'undefined'
+  && __OPENCHAMBER_UPDATER_E2E_BUILD__ === true;
+
+const readUpdateChannel = () => normalizeUpdateChannel(readSettingsRoot().desktopUpdateChannel);
+
+/**
+ * Points the updater at the chosen channel's feed; every check re-reads the
+ * stored channel, so a switch takes effect on the next check without a
+ * restart. Stable from a Canary build allows the downgrade to the latest
+ * release, which is the way back; a release build never downgrades.
+ */
+const applyUpdaterChannel = (channel) => {
+  if (state.updaterChannel === channel) return;
+  // An update found on the other channel is not this channel's; the next
+  // check starts clean (a failed feed otherwise keeps it, #5921).
+  if (state.updaterChannel !== null) state.pendingUpdate = null;
+  const feed = resolveUpdaterFeed({ testBuild: UPDATER_E2E_BUILD, channel });
+  // Both published feeds carry the Windows ARM64 manifest; the E2E fixture does not.
+  const updaterChannel = feed === PRODUCTION_UPDATER_FEED || feed === CANARY_UPDATER_FEED
+    ? resolveUpdaterChannel({ platform: process.platform, architecture: process.arch })
+    : null;
+  if (updaterChannel) {
+    autoUpdater.channel = updaterChannel;
   }
-  return 0;
+  autoUpdater.setFeedURL(feed);
+  autoUpdater.allowDowngrade = channel === 'stable' && isCanaryVersion(APP_VERSION);
+  state.updaterChannel = channel;
+  log.info('[electron] updater feed configured', {
+    channel,
+    provider: feed.provider,
+    target: feed.provider === 'github' ? `${feed.owner}/${feed.repo}` : feed.url,
+    manifest: updaterChannel || 'latest',
+    allowDowngrade: autoUpdater.allowDowngrade,
+  });
 };
 
 const setupAutoUpdater = () => {
@@ -3640,22 +3618,7 @@ const setupAutoUpdater = () => {
   autoUpdater.fullChangelog = true;
   autoUpdater.disableWebInstaller = false;
   autoUpdater.logger = log;
-
-  const testBuild = typeof __OPENCHAMBER_UPDATER_E2E_BUILD__ !== 'undefined'
-    && __OPENCHAMBER_UPDATER_E2E_BUILD__ === true;
-  const feed = resolveUpdaterFeed({ testBuild });
-  const updaterChannel = feed.provider === 'github'
-    ? resolveUpdaterChannel({ platform: process.platform, architecture: process.arch })
-    : null;
-  if (updaterChannel) {
-    autoUpdater.channel = updaterChannel;
-  }
-  autoUpdater.setFeedURL(feed);
-  log.info('[electron] updater feed configured', {
-    provider: feed.provider,
-    target: feed.provider === 'github' ? `${feed.owner}/${feed.repo}` : feed.url,
-    channel: updaterChannel || 'latest',
-  });
+  applyUpdaterChannel(readUpdateChannel());
 
   autoUpdater.on('download-progress', (progress) => {
     const total = Number(progress.total || 0);
@@ -3674,10 +3637,7 @@ const setupAutoUpdater = () => {
   autoUpdater.on('update-downloaded', (info) => {
     log.info(`[electron] update-downloaded version=${info?.version || 'unknown'}`);
     setTaskbarProgress(-1);
-    if (state.pendingUpdate) {
-      state.pendingUpdate.downloaded = true;
-      if (info?.downloadedFile) state.pendingUpdate.downloadedFile = info.downloadedFile;
-    }
+    markDesktopUpdateDownloaded(state.pendingUpdate, info);
   });
 
   autoUpdater.on('error', (err) => {
@@ -3770,6 +3730,7 @@ const installDownloadedUpdate = () => new Promise((resolve, reject) => {
         await installLinuxPackage({
           packageType: readLinuxPackageType(),
           file: state.pendingUpdate?.downloadedFile,
+          downgrade: state.pendingUpdate?.downgrade === true,
         });
         settled = true;
         autoUpdater.off('error', fail);
@@ -3802,7 +3763,7 @@ const installDownloadedUpdate = () => new Promise((resolve, reject) => {
   });
 });
 
-const parseRelevantChangelogNotes = (fromVersion, toVersion) => fetchUpdateNotes(fromVersion, toVersion, compareSemver);
+const parseRelevantChangelogNotes = (fromVersion, toVersion) => fetchUpdateNotes(fromVersion, toVersion, compareVersions);
 
 const buildInstalledAppsCachePath = () => path.join(path.dirname(settingsFilePath()), INSTALLED_APPS_CACHE_FILE);
 
@@ -4245,7 +4206,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         : (state.mainWindow && !state.mainWindow.isDestroyed() ? state.mainWindow : null);
       if (!target) return false;
       if (target.isMinimized()) target.restore();
-      target.show();
+      showWindow(target);
       target.focus();
       app.focus?.({ steal: true });
       return true;
@@ -4741,6 +4702,18 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       return null;
     }
 
+    case 'desktop_clipboard_read_selection':
+      if (process.platform !== 'linux' || !clipboard.selection) return '';
+      return clipboard.selection.readText();
+
+    case 'desktop_clipboard_write_selection': {
+      if (process.platform !== 'linux' || !clipboard.selection) return false;
+      const text = z.string().safeParse(args?.text);
+      if (!text.success) return false;
+      await clipboard.selection.writeText(text.data);
+      return true;
+    }
+
     case 'desktop_tray_update':
       if (state.trayController) {
         try {
@@ -5083,19 +5056,51 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       return null;
     }
 
+    case 'desktop_get_update_channel': {
+      return { channel: readUpdateChannel() };
+    }
+
+    case 'desktop_set_update_channel': {
+      if (!isUpdateChannel(args?.channel)) {
+        throw new Error('Unknown update channel');
+      }
+      const channel = args.channel;
+      await mutateSettingsRoot((root) => {
+        root.desktopUpdateChannel = channel;
+      });
+      return { channel };
+    }
+
     case 'desktop_check_for_updates': {
       assertUpdaterCapability({ packaged: app.isPackaged });
+      // electron-updater answers a check that is already running, for the
+      // feed it started on. A channel switched meanwhile waits for that check
+      // to end, then checks its own feed.
+      if (state.updateCheck && readUpdateChannel() !== state.updaterChannel) {
+        await state.updateCheck.catch(() => null);
+      }
+      applyUpdaterChannel(readUpdateChannel());
       const currentVersion = APP_VERSION;
-      const { available, updateInfo, updateResult, nextVersion, pendingUpdate } = await checkForDesktopUpdate({
+      const check = checkForDesktopUpdate({
         autoUpdater,
         currentVersion,
         pendingUpdate: state.pendingUpdate,
-        compareVersions: compareSemver,
       });
+      state.updateCheck = check;
+      let result;
+      try {
+        result = await check;
+      } finally {
+        if (state.updateCheck === check) state.updateCheck = null;
+      }
+      const { available, updateInfo, nextVersion, pendingUpdate } = result;
+      // Assign before the changelog fetch: a download can finish while the
+      // notes load and mark this record as downloaded. Assigning after that
+      // await would replace it with the pre-await copy and drop the payload.
+      state.pendingUpdate = pendingUpdate;
       const body =
         (typeof updateInfo?.releaseNotes === 'string' && updateInfo.releaseNotes.trim() ? updateInfo.releaseNotes : null) ||
         await parseRelevantChangelogNotes(currentVersion, nextVersion);
-      state.pendingUpdate = pendingUpdate;
       return {
         available,
         currentVersion,
@@ -5120,44 +5125,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         },
       }));
       try {
-        if (!state.pendingUpdate.electronUpdate) {
-          throw new Error('Electron updater metadata is not available for this build');
-        }
-        if (!state.pendingUpdate.downloaded) {
-          await new Promise((resolve, reject) => {
-            let settled = false;
-            const cleanup = () => {
-              autoUpdater.off('update-downloaded', onDownloaded);
-              autoUpdater.off('error', onError);
-            };
-            const finish = (callback, value) => {
-              if (settled) return;
-              settled = true;
-              cleanup();
-              callback(value);
-            };
-            const onDownloaded = () => finish(resolve, null);
-            const onError = (error) => finish(reject, error);
-            autoUpdater.on('update-downloaded', onDownloaded);
-            autoUpdater.on('error', onError);
-            // downloadUpdate() resolves once the payload is on disk. It stays
-            // the authoritative signal: when the file was already cached the
-            // updater emits no 'update-downloaded', and waiting only for the
-            // event left this promise pending and its listeners attached on
-            // every retry.
-            Promise.resolve(autoUpdater.downloadUpdate())
-              .then((files) => {
-                // The installer comes first; Linux packages install from it.
-                if (state.pendingUpdate && files?.[0]) state.pendingUpdate.downloadedFile = files[0];
-                finish(resolve, null);
-              })
-              .catch((error) => finish(reject, error));
-          });
-        }
-        // The 'update-downloaded' event does not fire for an already cached
-        // payload, so record the payload as ready here too; otherwise restart
-        // would relaunch without installing anything.
-        state.pendingUpdate.downloaded = true;
+        await downloadPendingDesktopUpdate({ autoUpdater, state });
         emitToAllWindows('openchamber:update-progress', mapUpdaterProgressEvent({
           event: 'Finished',
           data: {},
@@ -5231,7 +5199,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       if (config.defaultHostId && config.defaultHostId !== LOCAL_HOST_ID) {
         const host = config.hosts.find((entry) => entry.id === config.defaultHostId);
         const apiUrl = host?.apiUrl || host?.url;
-        if (host?.url && apiUrl && !state.unreachableHosts.has(apiUrl)) {
+        if (host?.url && apiUrl && !state.unreachableHosts.has(apiUrl)
+          && state.bootOutcome?.sshStartupFallbackHostId !== host.id) {
           targetUrl = shouldUsePackagedUi() ? buildPackagedUiUrl('/index.html') : host.url;
           runtimeConfig = {
             apiBaseUrl: normalizeHostUrl(apiUrl),
@@ -5348,7 +5317,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       }
 
       if (state.mainWindow.isMinimized()) state.mainWindow.restore();
-      state.mainWindow.show();
+      showWindow(state.mainWindow);
       state.mainWindow.focus();
       if (sessionId) {
         emitToWindow(state.mainWindow, 'openchamber:open-session', { sessionId, directory });
@@ -5516,10 +5485,10 @@ const buildMacMenu = (locale = 'en') => {
       submenu: [
         { label: t('toggleRightSidebar'), accelerator: 'Cmd+B', click: () => dispatchAction('toggle-right-sidebar') },
         { label: t('openGitSidebar'), accelerator: 'Cmd+Shift+G', click: () => dispatchAction('open-right-sidebar-git') },
-        { label: t('openFilesSidebar'), accelerator: 'Cmd+Shift+F', click: () => dispatchAction('open-right-sidebar-files') },
+        { label: t('openFilesSidebar'), click: () => dispatchAction('open-right-sidebar-files') },
         { type: 'separator' },
         { label: t('toggleTerminalDock'), accelerator: 'Cmd+J', click: () => dispatchAction('toggle-terminal') },
-        { label: t('toggleTerminalExpanded'), accelerator: 'Cmd+Shift+J', click: () => dispatchAction('toggle-terminal-expanded') },
+        { label: t('toggleContextPanelExpanded'), accelerator: 'Cmd+Shift+F', click: () => dispatchAction('toggle-context-panel-expanded') },
         { type: 'separator' },
         { label: t('lightTheme'), click: () => dispatchAction('theme-light') },
         { label: t('darkTheme'), click: () => dispatchAction('theme-dark') },
@@ -5624,10 +5593,10 @@ const buildAutoHiddenMenu = (locale = 'en') => {
         { type: 'separator' },
         { label: t('toggleRightSidebar'), accelerator: 'Ctrl+B', click: () => dispatchAction('toggle-right-sidebar') },
         { label: t('openGitSidebar'), accelerator: 'Ctrl+Shift+G', click: () => dispatchAction('open-right-sidebar-git') },
-        { label: t('openFilesSidebar'), accelerator: 'Ctrl+Shift+F', click: () => dispatchAction('open-right-sidebar-files') },
+        { label: t('openFilesSidebar'), click: () => dispatchAction('open-right-sidebar-files') },
         { type: 'separator' },
         { label: t('toggleTerminalDock'), accelerator: 'Ctrl+J', click: () => dispatchAction('toggle-terminal') },
-        { label: t('toggleTerminalExpanded'), accelerator: 'Ctrl+Shift+J', click: () => dispatchAction('toggle-terminal-expanded') },
+        { label: t('toggleContextPanelExpanded'), accelerator: 'Ctrl+Shift+F', click: () => dispatchAction('toggle-context-panel-expanded') },
         { type: 'separator' },
         { label: t('lightTheme'), click: () => dispatchAction('theme-light') },
         { label: t('darkTheme'), click: () => dispatchAction('theme-dark') },
@@ -6050,7 +6019,7 @@ const revealMainWindow = async () => {
   }
   if (target && !target.isDestroyed()) {
     if (target.isMinimized()) target.restore();
-    target.show();
+    showWindow(target);
     target.focus();
   }
   return target;
@@ -6063,7 +6032,7 @@ const revealMainWindow = async () => {
 const focusMainWindowWithSession = async (sessionId, directory) => {
   if (state.mainWindow && !state.mainWindow.isDestroyed()) {
     if (state.mainWindow.isMinimized()) state.mainWindow.restore();
-    state.mainWindow.show();
+    showWindow(state.mainWindow);
     state.mainWindow.focus();
     if (sessionId) {
       emitToWindow(state.mainWindow, 'openchamber:open-session', { sessionId, directory: directory || '' });
@@ -6088,7 +6057,7 @@ const dispatchTrayAction = async (action) => {
       : BrowserWindow.getFocusedWindow();
     if (target && !target.isDestroyed() && target.isVisible()) {
       debounceWindowStatePersist(target, true);
-      target.hide();
+      hideWindow(target);
     }
     return;
   }
@@ -6097,9 +6066,9 @@ const dispatchTrayAction = async (action) => {
     const target = (state.mainWindow && !state.mainWindow.isDestroyed())
       ? state.mainWindow
       : null;
-    if (target && target.isVisible() && !target.isMinimized()) {
+    if (target && target.isVisible() && !target.isMinimized() && !isWindowHidePending(target)) {
       debounceWindowStatePersist(target, true);
-      target.hide();
+      hideWindow(target);
       return;
     }
     await revealMainWindow();
@@ -6131,7 +6100,7 @@ const dispatchTrayAction = async (action) => {
     const surface = resolveTraySurface();
     if (surface && surface.__ocMiniChat === true && action.sessionId) {
       if (surface.isMinimized()) surface.restore();
-      surface.show();
+      showWindow(surface);
       surface.focus();
       emitToWindow(surface, 'openchamber:open-session', {
         sessionId: action.sessionId,
@@ -6247,7 +6216,7 @@ app.on('activate', async () => {
     ? remembered
     : (windows.find((window) => window.isVisible() && !window.isMinimized()) || windows[0]);
   if (targetWindow.isMinimized()) targetWindow.restore();
-  targetWindow.show();
+  showWindow(targetWindow);
   targetWindow.focus();
 });
 

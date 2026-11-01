@@ -11,7 +11,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
 });
 
-const createHarness = async ({ settings = {}, env = {}, memoryAvailable = true, workflowAvailable = false } = {}) => {
+const createHarness = async ({ settings = {}, env = {}, workflowAvailable = false } = {}) => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openchamber-managed-config-'));
   temporaryDirectories.push(dataDir);
   const agentToolRuntime = {
@@ -35,7 +35,6 @@ const createHarness = async ({ settings = {}, env = {}, memoryAvailable = true, 
     env,
     agentToolRuntime,
     readSettings: () => current.settings,
-    isAgentMemoryAvailable: () => memoryAvailable,
     isWorkflowAvailable: () => workflowAvailable,
   });
   const readConfigFile = async () => JSON.parse(await fs.readFile(path.join(dataDir, MANAGED_CONFIG_FILE_NAME), 'utf8'));
@@ -73,7 +72,7 @@ describe('managed OpenCode config file', () => {
     temporaryDirectories.push(dataDir);
     const failoverDirectory = path.join(dataDir, 'limit-failover', 'openchamber-limit-failover');
     const titleDirectory = path.join(dataDir, 'session-title', 'openchamber-session-title');
-    const toolsOff = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false };
+    const toolsOff = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false };
     const current = { settings: toolsOff };
     const runtime = createManagedConfigRuntime({
       fsPromises: fs,
@@ -83,7 +82,6 @@ describe('managed OpenCode config file', () => {
       agentToolRuntime: { materializePlugin: vi.fn(), createChildEnv: () => ({}) },
       limitFailoverRuntime: { materializePlugin: vi.fn(async () => failoverDirectory) },
       readSettings: () => current.settings,
-      isAgentMemoryAvailable: () => false,
     });
     const readConfig = async () => JSON.parse(await fs.readFile(path.join(dataDir, MANAGED_CONFIG_FILE_NAME), 'utf8'));
 
@@ -105,7 +103,7 @@ describe('managed OpenCode config file', () => {
 
   it('keeps the callback token in the child env while every tool is off', async () => {
     const { runtime, agentToolRuntime, readConfigFile, titleDirectory } = await createHarness({
-      settings: { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentMemoryToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false },
+      settings: { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentMemoryToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false },
     });
 
     const childEnv = await runtime.buildManagedChildEnv();
@@ -122,7 +120,7 @@ describe('managed OpenCode config file', () => {
     });
     await runtime.buildManagedChildEnv();
 
-    current.settings = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false };
+    current.settings = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false };
     expect(await runtime.refreshManagedConfigFile()).toEqual({ updated: true });
 
     const { plugins } = await readConfigFile();
@@ -132,11 +130,11 @@ describe('managed OpenCode config file', () => {
 
   it('turns a tool back on without a restart', async () => {
     const { runtime, current, agentToolRuntime, readConfigFile } = await createHarness({
-      settings: { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false },
+      settings: { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false },
     });
     await runtime.buildManagedChildEnv();
 
-    current.settings = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: true, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false };
+    current.settings = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: true, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false };
     await runtime.refreshManagedConfigFile();
 
     expect((await readConfigFile()).plugins).toHaveLength(3);
@@ -149,6 +147,7 @@ describe('managed OpenCode config file', () => {
       includeNotify: false,
       includeRender: false,
       includeImage: false,
+      includeSecret: false,
       includeWorkflow: false,
       codeMode: false,
     });
@@ -202,7 +201,7 @@ describe('managed OpenCode config file', () => {
 
   it('injects the notify tool only when it is switched on', async () => {
     const { runtime, agentToolRuntime } = await createHarness({
-      settings: { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentNotifyToolEnabled: true },
+      settings: { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false, agentNotifyToolEnabled: true },
     });
 
     await runtime.buildManagedChildEnv();
@@ -216,6 +215,7 @@ describe('managed OpenCode config file', () => {
       includeNotify: true,
       includeRender: false,
       includeImage: false,
+      includeSecret: false,
       includeWorkflow: false,
       codeMode: false,
     });
@@ -237,6 +237,7 @@ describe('managed OpenCode config file', () => {
       includeNotify: false,
       includeRender: true,
       includeImage: false,
+      includeSecret: true,
       includeWorkflow: false,
       codeMode: true,
     });
@@ -270,20 +271,19 @@ describe('managed OpenCode config file', () => {
     expect(entries).toContain(MANAGED_CONFIG_FILE_NAME);
   });
 
-  it('ignores the memory tool while the feature is unavailable', async () => {
-    const { runtime, agentToolRuntime, readConfigFile, titleDirectory } = await createHarness({
-      settings: { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentMemoryToolEnabled: true },
-      memoryAvailable: false,
-    });
+  it('injects the memory tool only once the user turns it on', async () => {
+    const toolsOff = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false };
+    const unset = await createHarness({ settings: toolsOff });
+    await unset.runtime.buildManagedChildEnv();
+    expect(unset.agentToolRuntime.materializePlugin).not.toHaveBeenCalled();
 
-    await runtime.buildManagedChildEnv();
-
-    expect(agentToolRuntime.materializePlugin).not.toHaveBeenCalled();
-    expect(await readConfigFile()).toEqual({ plugins: ['-opencode.browser', titleDirectory] });
+    const on = await createHarness({ settings: { ...toolsOff, agentMemoryToolEnabled: true } });
+    await on.runtime.buildManagedChildEnv();
+    expect(on.agentToolRuntime.materializePlugin).toHaveBeenCalledWith(expect.objectContaining({ includeMemory: true }));
   });
 
   it('injects the workflow tool by default only in a build that has workflows', async () => {
-    const toolsOff = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false };
+    const toolsOff = { agentControlToolEnabled: false, agentScheduleToolEnabled: false, agentWebToolEnabled: false, agentKnowledgeToolEnabled: false, agentRenderToolEnabled: false, agentSecretToolEnabled: false };
     const absent = await createHarness({ settings: toolsOff });
     await absent.runtime.buildManagedChildEnv();
     expect(absent.agentToolRuntime.materializePlugin).not.toHaveBeenCalled();

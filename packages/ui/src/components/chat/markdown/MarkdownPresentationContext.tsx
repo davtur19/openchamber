@@ -3,6 +3,8 @@ import type { Theme } from '@/types/theme';
 import type { ToolPopupContent } from '../message/types';
 import type { MarkdownCodePlugin } from './streamdownCode';
 
+export type FileReferenceSource = 'path' | 'href';
+
 export interface MermaidControls {
   download?: boolean;
   copy?: boolean;
@@ -23,10 +25,9 @@ export interface MarkdownPresentation {
   disableLinkSafety?: boolean;
   theme: Theme;
   mermaidControls: MermaidControls;
-  allowMermaidWheelEvents?: boolean;
   onShowPopup?: (content: ToolPopupContent) => void;
   onExportCode?: (source: string, language: string) => void;
-  confirmFile: (source: string) => Promise<string | null>;
+  confirmFile: (source: string, inputKind?: FileReferenceSource) => Promise<string | null>;
   code: MarkdownCodePlugin;
 }
 

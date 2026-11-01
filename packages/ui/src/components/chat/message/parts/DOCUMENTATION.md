@@ -60,14 +60,18 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 - `components/LiveTurnActivity.tsx` (relative to the chat folder)
   - Owns the optional turn disclosure. `MessageList` enables it when Activity
     Default is Collapsed and the turn has visible Activity content.
-  - `components/LiveActivityCollapse.tsx` owns the finite height transition;
-    `components/liveActivityContext.ts` scopes the final message's non-text
+  - The turn's rows (`lib/turns/timelineRows.ts`) are the fold's header,
+    the steps once it is opened, and the final answer; `TurnFold` draws the
+    header and, folded, what stays in view. `components/LiveActivityCollapse.tsx`
+    shows or hides the folded content at once; `components/liveActivityContext.ts` scopes the final message's non-text
     disclosure without changing message context or tool rendering.
   - `lib/turns/liveActivity.ts` owns final-answer and interruption boundaries.
   - `lib/turns/liveActivitySummary.ts` derives the report from tool results.
 
 - `ShownToolCard.tsx`
-  - What a call drawn in place of its row shows (`isShownInPlace` in `@/lib/opencode/tools`): the run a completed `workflow.run` call proposed (`proposedWorkflowRunId`, read from the call's result envelope), the images a completed `image.generate` call saved (`generatedImagePaths`, drawn by `GeneratedImages.tsx` through the chat's Markdown media, so they load lazily and open in the gallery; each has a download above it that saves the file itself at full size through the same grant, with `saveFile.ts`, which a shown page's download uses too), else the page of an `openchamber_render` call. The user is meant to see all three, so they are hoisted to the answer with the turn's pages when Activity is collapsed.
+  - What a call drawn in place of its row shows (`isShownInPlace` in `@/lib/opencode/tools`): the run a completed `workflow.run` call proposed (`proposedWorkflowRunId`, read from the call's result envelope), the images a completed `image.generate` call saved (`generatedImagePaths`, drawn by `GeneratedImages.tsx` through the chat's Markdown media, so they load lazily and open in the gallery; each has a download above it that saves the file itself at full size through the same grant, with `saveFile.ts`, which a shown page's download uses too), the card of an `openchamber_secret` call (`requestedSecret`), else the page of an `openchamber_render` call. The user is meant to see all of them, so they are hoisted to the answer with the turn's pages when Activity is collapsed.
+- `SecretRequestCard.tsx`
+  - The card an agent asks for a secret on: label, reason, a masked field that password managers are told to skip, Save securely and Decline. The value goes to the server through `answerSecretRequest` (`@/lib/secretRequestAnswer`) and never into the call, so the card's state comes from the call's status and the `status` the plugin copies into its metadata; what this client sent shows until the call completes. A refused answer (answered elsewhere, turn ended) shows a toast and keeps the card. Once answered it folds to one line. The answer names the session's directory, so a card in an isolated space reaches the space's server, where the call waits and the agent's commands run. A card that waits is brought into view the way a waiting page is (`data-waiting-page`, `dispatchPageWaiting`).
   - The workflow card (`components/chat/workflows/WorkflowRunCard.tsx`) reads the run from the server's store, not from the call: the plan with its phases, the run's state, and Run and Don't run while it waits for approval, Stop while it runs, Resume after a failure or stop. The card is current after a reload and on every device; a run the server no longer has says so.
   - The run's report arrives later as a synthetic message (`lib/workflows/report.ts`) and renders as one collapsed line in `TimelineNotice`, like a dispatched session's result, opening a turn of its own.
 
@@ -92,6 +96,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 - `BlockLine.tsx`
   - The vertical connector line left of a collapsible block's body. It is also a click target: clicking it folds/expands the block via its header toggle handler (`onToggle`), or toggles the nearest native `<details>` when no handler is passed (JSON summary sections). Geometry is inline-styled (12px hit strip centered on the 1px line) so it does not depend on compiled Tailwind classes.
+  - `BlockBody` is the expanded body of every collapsible block (reasoning, tool calls): the line, a 12px inset from it, 4px above and 8px below. Content inside adds no inline padding of its own, so every block's text starts at the same distance from the line. Tool input and output boxes have no fill on any runtime, so padding on them only shifted text; boxes with a fill (error, LSP diagnostics) and diffs keep their own inner padding, with their outer edge on the inset.
+  - Two text roles apply across blocks. Prose, including reasoning, tool markdown and subagent prompts, is upright sans at `--text-meta`. Code, including shell commands, tool parameters and text output, is mono with the code-block line height.
 
 ## Current important behavior
 
@@ -132,6 +138,26 @@ run a second Markdown parser. Ordinary code selections copy raw code;
 prose follows the Markdown/plain setting and retains safe rich HTML. The
 desktop `openchamber:copy` event follows the same selection policy.
 
+### Why image exports keep prose at the visible column width
+
+The export clone keeps the live message column width, including whole-turn
+exports whose source is detached. Shrink-to-fit sizing let the widest line
+stretch every paragraph. Code wraps for the image; only unwrappable blocks
+grow the canvas. Their clipping ancestors clear both overflow axes because a
+hidden y axis makes visible x overflow compute to auto. Non-root ancestors
+also release width caps such as KaTeX's `max-width: 100%`; the clone root stays
+column-sized so surrounding prose does not reflow.
+
+The canvas uses LTR physical placement while the clone retains its inherited
+text direction. Overflow is measured on both edges after releasing width caps;
+left overflow adds a physical offset to the clone. Growing the canvas therefore
+cannot right-align and move the fixed-width text column in an RTL interface.
+
+Overflow measurement skips hidden and clipped content, including KaTeX's
+invisible MathML twin, and tolerates 1 CSS pixel of rounding. Pixel density
+falls from 2 toward 0.5 near html-to-image's 16384-device-pixel limit. Beyond
+32768 CSS pixels the floor still permits the library's existing squash behavior.
+
 ### Why selection cloning follows the Range boundaries
 
 `markdown/selectionRange.ts` owns code-source coverage for Markdown selection,
@@ -155,6 +181,29 @@ components own navigation, file references, media, Mermaid and controls;
 clipboard and image rendering share this configuration. The stable consumer
 root is `.markdown-content[data-markdown-content]`; code and table consumers
 use native `data-streamdown` markers.
+
+#### Why Markdown consumers use the lazy wrapper
+
+`markdownRendererLoader.ts` dynamically imports the renderer and its imports,
+including Streamdown, KaTeX, Shiki and beautiful-mermaid with ELK.
+The web and mobile entry points start that import at boot without making the
+first render wait for it.
+Components take `MarkdownRenderer`, `SimpleMarkdownRenderer` or
+`MarkdownContent` from `MarkdownRenderer.tsx`; a static value import of
+`MarkdownRendererImpl` from anywhere in the startup graph pulls all of it back
+in front of React's first render. The regression guard is
+`components/chat/__tests__/markdownRendererStaysLazy.test.ts`. The
+`MarkdownContent` wrapper picks the lazy or the loaded component once per
+mount, so content that mounted before the module arrived is not remounted when
+it does.
+
+#### Why chat requires double tildes for strikethrough
+
+Single tildes in agent prose often mark ranges such as `5~20s`. Both GFM and
+the CJK extension disable single-tilde strikethrough for chat because micromark
+merges their registrations. Chat callers and exports pass `singleTilde={false}`.
+Documents, file previews, plans, notes and release notes retain the default GFM
+rendering, including GitHub's `~text~` in host-authored descriptions and comments.
 
 Fenced `diff` blocks carry a translated Proposal label and a source-copy button.
 Completed, bounded patches use the same read-only diff preview as tool cards,
@@ -371,13 +420,10 @@ replays the jump as a 220 ms glide of the rows (FLIP, `transform` only, skipped
 with reduced motion). The trim stays while the settled fold closes and lifts
 when the reader opens it.
 
-A long turn, in either mode, mounts only a window of its rows
-(`lib/turns/turnMessageWindow.ts`, `components/TurnMessageWindow.tsx`): past
-60 rows its newest 40, with the rest behind spacers that mount 40 at a time as
-they near the viewport. It counts rows with the same rule as the fold, and the
-head may end inside a message, whose first rows `MessageBody` skips through
-`ActivityRowSkipContext`. Counting messages left a turn of a few steps with
-dozens of parallel calls each fully mounted.
+A long turn, in either mode, is several list rows: a row per step once the
+fold is open, a step that ran dozens of calls cut every 24 parts, and a long
+answer cut between its blocks (`lib/turns/timelineRows.ts`). The list mounts
+only the rows near the view.
 
 A final assistant message with `finish: stop`
 collapses the earlier messages and the final message's non-text parts, keeping
@@ -391,15 +437,17 @@ opens a turn there (`createNoticeTurnSplitter`), so each answer keeps its own
 Activity and stays outside it; a notice between steps of one run does not.
 
 Manual expansion survives later metadata updates and timeline virtualization
-within the session. The disclosure uses a finite 180ms height transition,
-respects reduced motion, and delegates end pinning to the existing timeline.
-It never calls scroll-to-bottom. Collapsed history does not mount its hidden
-message bodies; initial history loads do not animate collapse.
-Layout-effect replay after a Suspense hide/reveal must settle the requested
-height and retained children even when the expanded target did not change.
-Cleanup stops the animation, so a same-target early return can leave a cached
-pre-collapse height on the DOM indefinitely. Failed animations also settle;
-callbacks from cancelled, superseded animations never settle a newer target.
+within the session. The disclosure opens and closes at once and delegates end
+pinning to the existing timeline. It never calls scroll-to-bottom. Collapsed
+history does not mount its hidden message bodies.
+
+### Why the fold opens and closes without a height animation
+
+Once the steps became list rows of their own, a fold no longer closes a block
+inside one row: closing it removes rows from the list's data, and the list
+keeps the reader's place. A 180 ms height transition across several rows would
+need its own choreography; the maintainer chose to start without one and add
+it back if it is missed.
 
 The virtualizer also adds temporary end padding while compensating prepended
 history. `@legendapp/list` stores that padding's CSSOM read-back value (built
@@ -467,6 +515,13 @@ themselves cannot list. Past four pills the rest wait behind one `+N` pill
 that reveals them in the row; the same pill then hides them again. The list is projected once the last assistant message
 finished with `stop`, so no tool patch is parsed while the turn streams.
 
+### Why tool rows appear without an entrance
+
+A tool row that arrived while its turn ran used to wipe in over 500 ms and
+type its title out. Opening a session whose live turn had over a hundred
+tool calls started an animation for each of them, and the switch felt heavy.
+Rows now appear as they are, and no list of revealed calls is kept per message.
+
 ### Why empty reasoning does not separate the answer
 
 `MessageBody` omits reasoning containing only whitespace or default-ignorable
@@ -483,6 +538,18 @@ before child passive effects resolve sources; a deferred terminal dispose only
 covered immediate StrictMode replay and left longer hidden intervals unusable.
 Document consumers clear revoked URLs before paint and load fresh ones through
 the same owner.
+
+### Why a drawn page reads the app's fonts in a passive effect
+
+A page's root font size and font families come from the app's root
+(`useHtmlRenderTheme.ts`), which the interface size and font settings write in
+layout effects (`ThemeProvider`, `useAppFontEffects`). Those run after the
+page's host renders, so a read during the render a setting change causes saw
+the old values, and the page kept its old size until a theme switch (#5884).
+The host reads in a passive effect, which runs after every layout effect of the
+same commit; `useAppFontEffects` is a layout effect for that reason. A read one
+frame later was the alternative: it works too, but leaves a frame at the old
+size and depends on frame timing.
 
 ### Why a running shell row reads its output only while expanded
 
@@ -533,7 +600,12 @@ update, with the `shellID`, when the command starts.
   component state, using image aspect ratios and wrapping at small widths.
   Mixed prose paragraphs keep their normal flow. No label scan or detached
   DOM restoration participates in loading.
-  An image that is missing, too large or fails validation keeps its label.
+  While it loads the label's icon spins; an image that is missing, too large
+  or fails validation keeps its label with a warning icon and "Image couldn't
+  load" in its tooltip (`data-oc-media-state`). Image attachments, the preview
+  overlay and diff images draw through `StatusImage`
+  (`components/ui/status-image.tsx`), which shows loading and failure in the
+  image's own frame.
   Remote model/tool Markdown images stay labels or links, so a model or a
   fetched page cannot learn when the user read the message. Documents and
   references retain their explicit inline-image policy. A click on loaded
@@ -668,7 +740,7 @@ Why: only navigation tools use the compact static path; all other tools need obs
   `tracker-item` of Linear (`lib/messages/contextParts.ts`). Legacy pre-metadata messages still render
   via text sniffing (`<terminal_context>` blocks, `GitHub issue context (JSON)`
   and `Linear issue context (JSON)` prefixes).
-- Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `ToolRevealOnMount.tsx`, `GuestToolTable.tsx`
+- Tools: `ToolPart.tsx`, `ToolPartDiffPreview.tsx`, `PlainDiffFallback.tsx`, `ProgressiveGroup.tsx`, `toolPresentation.tsx`, `toolRenderUtils.ts`, `GuestToolTable.tsx`
 - Reasoning: `ReasoningPart.tsx`
 - Status/placeholders: `WorkingPlaceholder.tsx`, `SessionActiveSpinner.tsx`, `MigratingPart.tsx`; the dots after a busy label are `components/ui/busy-dots.tsx`
 - Utility renderers: `VirtualizedCodeBlock.tsx`, `MinDurationShineText.tsx`

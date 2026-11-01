@@ -2,7 +2,7 @@ import React from 'react';
 
 import { MessageFreshnessDetector } from '@/lib/messageFreshness';
 import { createScrollSpy } from '@/components/chat/lib/scroll/scrollSpy';
-import { cancelWhenLayoutSettled, isLayoutAnimating, onLayoutAnimationStart, runWhenLayoutSettled } from '@/lib/layoutAnimation';
+import { cancelWhenLayoutSettled, isLayoutAnimating, onLayoutAnimationStart, onWidthDragStart, runWhenLayoutSettled } from '@/lib/layoutAnimation';
 import { createKeyboardFollowGlide, type KeyboardFollowGlide } from '@/components/chat/lib/scroll/keyboardFollowGlide';
 import { retireScrollContent } from '@/components/chat/lib/scroll/retireScrollContent';
 import {
@@ -137,7 +137,7 @@ interface UseChatTimelineScrollResult {
     isPinned: boolean;
     registerList: (list: TimelineListHandle | null, sessionKey?: string) => void;
     onIsAtEndChange: (isAtEnd: boolean) => void;
-    onListMetricsChange: (metrics: { readonly footerSize: number }) => void;
+    onListMetricsChange: (metrics: { readonly headerSize: number; readonly footerSize: number }) => void;
     onManualNavigation: () => void;
     onTimelineDataChange: () => void;
     showScrollButton: boolean;
@@ -226,10 +226,20 @@ interface FollowStop {
     readonly bottom: number;
 }
 
+// A turn is several list rows (`timelineRows.ts`); its prompt row names it
+// (`data-turn-id`), the others carry `data-turn-row`.
+const turnIdOf = (element: HTMLElement): string | undefined => (
+    element.closest<HTMLElement>('[data-turn-row]')?.dataset.turnRow
+        ?? element.closest<HTMLElement>('[data-turn-id]')?.dataset.turnId
+);
+
 const readFollowStop = (node: HTMLElement, element: HTMLElement): FollowStop => {
     const rect = element.getBoundingClientRect();
     const offset = node.scrollTop - node.getBoundingClientRect().top;
-    const header = element.closest('[data-turn-id]')?.querySelector<HTMLElement>(':scope > [data-turn-sticky-header]');
+    const turnId = turnIdOf(element);
+    const header = turnId
+        ? node.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"] > [data-turn-sticky-header]`)
+        : null;
     const headerHeight = header ? header.getBoundingClientRect().height : 0;
     return {
         element,
@@ -240,18 +250,19 @@ const readFollowStop = (node: HTMLElement, element: HTMLElement): FollowStop => 
 
 // The list places rows in pooled containers, so document order is not
 // timeline order: a new turn often lands in a container that comes earlier in
-// the document. The latest turn is the one lowest in the content.
-const findLatestTurn = (node: HTMLElement): HTMLElement | null => {
+// the document. The latest turn owns the row lowest in the content; its prompt
+// row may be far above and unmounted.
+const findLatestTurnId = (node: HTMLElement): string | undefined => {
     let latest: HTMLElement | null = null;
     let latestTop = Number.NEGATIVE_INFINITY;
-    for (const turn of node.querySelectorAll<HTMLElement>('[data-turn-id]')) {
-        const top = turn.getBoundingClientRect().top;
+    for (const row of node.querySelectorAll<HTMLElement>('[data-turn-id], [data-turn-row]')) {
+        const top = row.getBoundingClientRect().top;
         if (top > latestTop) {
-            latest = turn;
+            latest = row;
             latestTop = top;
         }
     }
-    return latest;
+    return latest ? turnIdOf(latest) : undefined;
 };
 
 const findStreamingReply = (node: HTMLElement): HTMLElement | null => lastMatch(node, '[data-streaming-reply]');
@@ -266,11 +277,24 @@ const findStreamingReply = (node: HTMLElement): HTMLElement | null => lastMatch(
  */
 const findFollowStops = (node: HTMLElement, stopAfterUserMessage: boolean, reply: HTMLElement | null): FollowStop[] => {
     const stops: FollowStop[] = [];
-    // The turn's work starts right after the reader's message: the sticky
-    // header, or the message row itself when the header does not stick.
-    const turn = stopAfterUserMessage ? findLatestTurn(node) : null;
-    const work = turn?.children[1];
-    if (work instanceof HTMLElement) stops.push(readFollowStop(node, work));
+    // The turn's work starts at the first row after the reader's message,
+    // the topmost of its rows (pooled containers are not in timeline order).
+    const turnId = stopAfterUserMessage ? findLatestTurnId(node) : undefined;
+    // The work ends with the turn's last row: "taller than the screen" counts
+    // all of it, as it did when the work was one element.
+    let work: HTMLElement | null = null;
+    let workBottom = Number.NEGATIVE_INFINITY;
+    if (turnId) {
+        for (const row of node.querySelectorAll<HTMLElement>(`[data-turn-row="${CSS.escape(turnId)}"]`)) {
+            const rect = row.getBoundingClientRect();
+            if (!work || rect.top < work.getBoundingClientRect().top) work = row;
+            workBottom = Math.max(workBottom, rect.bottom);
+        }
+    }
+    if (work) {
+        const stop = readFollowStop(node, work);
+        stops.push({ ...stop, bottom: workBottom + node.scrollTop - node.getBoundingClientRect().top });
+    }
     if (reply) stops.push(readFollowStop(node, reply));
     return stops;
 };
@@ -359,10 +383,10 @@ export const useChatTimelineScroll = ({
     // reader pinned at the end (see the pinned-end section).
     const pinnedThroughAnimationRef = React.useRef(false);
     // Where a reader on the end sits relative to the list's own measured end
-    // when a side-column animation starts: on the document's end, that is a
-    // few px below (8 in a typical transcript). The animation holds the end
-    // from the list's measurements, since the document's lags a re-wrap;
-    // without this the pinned text hopped by that much at every toggle.
+    // when a side-column animation starts: zero once the list is measured,
+    // off by what its estimates still miss otherwise. The animation holds the
+    // end from the list's measurements, since the document's lags a re-wrap,
+    // and keeps that offset so the pinned text does not hop.
     const animationEndCorrectionRef = React.useRef(0);
     // Incremented by every real user gesture. Automatic movement is only valid
     // while `liveFollowGenerationRef` still equals it.
@@ -418,10 +442,13 @@ export const useChatTimelineScroll = ({
             followStopEligibilityRef.current.set(stop.element, false);
         }
     };
-    // Size of the list footer, reported by the list as it is measured; the
-    // real content end sits below the last row by this much.
+    // Sizes of the list header and footer, reported by the list as it is
+    // measured: row positions start below the header, and the real content
+    // end sits below the last row by the footer.
+    const listHeaderSizeRef = React.useRef(0);
     const listFooterSizeRef = React.useRef(0);
-    const onListMetricsChange = React.useCallback((metrics: { readonly footerSize: number }) => {
+    const onListMetricsChange = React.useCallback((metrics: { readonly headerSize: number; readonly footerSize: number }) => {
+        listHeaderSizeRef.current = Number.isFinite(metrics.headerSize) ? metrics.headerSize : 0;
         listFooterSizeRef.current = Number.isFinite(metrics.footerSize) ? metrics.footerSize : 0;
     }, []);
     const currentSessionKeyRef = React.useRef(currentSessionKey);
@@ -655,6 +682,7 @@ export const useChatTimelineScroll = ({
         let frame: number | null = null;
         let frames = 0;
         let stable = first === 'aligned' ? 1 : 0;
+        let readyStable = 0;
         let settled = false;
         let finished = false;
         const settle = () => {
@@ -702,7 +730,11 @@ export const useChatTimelineScroll = ({
             // Two still frames: shown where it belongs. The hold continues
             // for late measurements (images, highlighted code) above it.
             if (stable >= 2) settle();
-            if (result === 'missing' || stable >= ANCHOR_HOLD_STABLE_FRAMES || frames >= ANCHOR_HOLD_MAX_FRAMES) {
+            // Markdown still loading lands later at its own heights: the hold
+            // counts still frames only from when it has drawn.
+            const loading = node.querySelector(`[data-message-id="${CSS.escape(anchor.messageId)}"] [data-chat-quote-pending]`) !== null;
+            readyStable = result === 'aligned' && !loading ? readyStable + 1 : 0;
+            if (result === 'missing' || readyStable >= ANCHOR_HOLD_STABLE_FRAMES || frames >= ANCHOR_HOLD_MAX_FRAMES) {
                 finish();
                 return;
             }
@@ -944,7 +976,7 @@ export const useChatTimelineScroll = ({
                 const offset = state
                     ? resolveRealContentEndOffset({
                         state,
-                        composerOverlayHeight: composerOverlayHeightRef.current,
+                        headerSize: listHeaderSizeRef.current,
                         footerSize: listFooterSizeRef.current,
                     })
                     : null;
@@ -1127,12 +1159,40 @@ export const useChatTimelineScroll = ({
     }, [releaseFollowAtStop, resumeFollow]);
     const revealWaitingPageRef = React.useRef(revealWaitingPage);
     revealWaitingPageRef.current = revealWaitingPage;
+    // The end reaching a reader without a scroll is judged once the list has
+    // finished the pass that reported the new total. The list reports the
+    // total before it moves the viewport for rows above the reader that
+    // measured smaller than estimated, sometimes a frame later; in between,
+    // a reader hundreds of pixels above the end reads as on it, and the
+    // follow it re-armed pulled them down to the end. The check waits for
+    // the frame after the pass (a microtask first, so it runs after any frame
+    // work the pass scheduled) and reads the list's state again there.
+    const endArrivalPendingRef = React.useRef(false);
+    const endArrivalFrameRef = React.useRef<number | null>(null);
+    const confirmEndArrived = React.useCallback(() => {
+        if (endArrivalPendingRef.current) return;
+        endArrivalPendingRef.current = true;
+        queueMicrotask(() => {
+            if (!endArrivalPendingRef.current) return;
+            endArrivalFrameRef.current = window.requestAnimationFrame(() => {
+                endArrivalFrameRef.current = null;
+                endArrivalPendingRef.current = false;
+                if (isAtEndRef.current) return;
+                const state = listRef.current?.getState();
+                if (!state || state.contentLength === undefined) return;
+                if (state.contentLength - state.scroll - state.scrollLength <= 1) onIsAtEndChange(true);
+            });
+        });
+    }, [onIsAtEndChange]);
     React.useEffect(() => () => {
         if (followFrameRef.current !== null) window.cancelAnimationFrame(followFrameRef.current);
         followFrameRef.current = null;
         glideRef.current = null;
         if (pageRevealFrameRef.current !== null) window.cancelAnimationFrame(pageRevealFrameRef.current);
         pageRevealFrameRef.current = null;
+        if (endArrivalFrameRef.current !== null) window.cancelAnimationFrame(endArrivalFrameRef.current);
+        endArrivalFrameRef.current = null;
+        endArrivalPendingRef.current = false;
     }, []);
 
     const onTimelineDataChange = React.useCallback(() => {
@@ -1155,7 +1215,7 @@ export const useChatTimelineScroll = ({
                 if (lastBottom !== null && state.scroll > lastBottom) {
                     const offset = resolveRealContentEndOffset({
                         state,
-                        composerOverlayHeight: composerOverlayHeightRef.current,
+                        headerSize: listHeaderSizeRef.current,
                         footerSize: listFooterSizeRef.current,
                     });
                     if (offset !== null) {
@@ -1182,7 +1242,7 @@ export const useChatTimelineScroll = ({
             const state = list.getState();
             const below = state.contentLength === undefined ? null : state.contentLength - state.scroll - state.scrollLength;
             if (!isAtEndRef.current) {
-                if (below !== null && below <= 1) onIsAtEndChange(true);
+                if (below !== null && below <= 1) confirmEndArrived();
                 return;
             }
             // A row opened on the end that grew less than the band leaves the
@@ -1232,7 +1292,7 @@ export const useChatTimelineScroll = ({
         // at 45% of the stream time spent 500-1600px behind at 420x640.
         if (modeRef.current !== 'following-end') return;
         followEnd();
-    }, [followEnd, isLiveFollowActive, onIsAtEndChange, revealWaitingPage, scheduleShowScrollButton]);
+    }, [confirmEndArrived, followEnd, isLiveFollowActive, onIsAtEndChange, revealWaitingPage, scheduleShowScrollButton]);
 
     // The streaming tail grows inside one row without changing the entries
     // array, so data-change callbacks are silent for the entire stream. The
@@ -1530,7 +1590,7 @@ export const useChatTimelineScroll = ({
                 const measured = state
                     ? resolveRealContentEndOffset({
                         state,
-                        composerOverlayHeight: composerOverlayHeightRef.current,
+                        headerSize: listHeaderSizeRef.current,
                         footerSize: listFooterSizeRef.current,
                     })
                     : null;
@@ -1601,7 +1661,7 @@ export const useChatTimelineScroll = ({
             const offset = state
                 ? resolveRealContentEndOffset({
                     state,
-                    composerOverlayHeight: composerOverlayHeightRef.current,
+                    headerSize: listHeaderSizeRef.current,
                     footerSize: listFooterSizeRef.current,
                 })
                 : null;
@@ -1616,7 +1676,7 @@ export const useChatTimelineScroll = ({
             const measured = state
                 ? resolveRealContentEndOffset({
                     state,
-                    composerOverlayHeight: composerOverlayHeightRef.current,
+                    headerSize: listHeaderSizeRef.current,
                     footerSize: listFooterSizeRef.current,
                 })
                 : null;
@@ -1632,6 +1692,27 @@ export const useChatTimelineScroll = ({
             release();
             cancelWhenLayoutSettled(settle);
             pinnedThroughAnimationRef.current = false;
+        };
+    }, [scrollNode]);
+
+    // While the user drags a side column's width, the transcript's off-screen
+    // messages skip layout (the `data-columns-moving` rule in index.css), so
+    // a frame re-wraps what is on screen, not every turn the list has
+    // mounted. Restored once the drag settles, where they re-wrap once at the
+    // final width. Only for a drag: with an accessibility client on, turning
+    // the skip on and off rebuilt the messages' accessibility nodes, 60 to
+    // 100 ms, more than a 240 ms toggle animation saved by it.
+    React.useEffect(() => {
+        if (!scrollNode) return;
+        const settle = () => scrollNode.removeAttribute('data-columns-moving');
+        const release = onWidthDragStart(() => {
+            scrollNode.setAttribute('data-columns-moving', '');
+            runWhenLayoutSettled(settle);
+        });
+        return () => {
+            release();
+            cancelWhenLayoutSettled(settle);
+            settle();
         };
     }, [scrollNode]);
 
@@ -1666,31 +1747,29 @@ export const useChatTimelineScroll = ({
         });
         spy.setContainer(container);
 
-        const elementByTurnId = new Map<string, HTMLElement>();
+        // Every row of a turn counts: a long turn's prompt row unmounts while
+        // the reader is deep in its answer.
+        const TURN_ROW_SELECTOR = '[data-turn-id], [data-turn-row]';
+        const turnIdOfRow = (node: HTMLElement) => node.dataset.turnId ?? node.dataset.turnRow;
         const registerTurnNode = (node: HTMLElement) => {
-            const turnId = node.dataset.turnId;
+            const turnId = turnIdOfRow(node);
             if (!turnId) return false;
-            elementByTurnId.set(turnId, node);
             spy.register(node, turnId);
             return true;
         };
         const unregisterTurnNode = (node: HTMLElement) => {
-            const turnId = node.dataset.turnId;
-            if (!turnId) return false;
-            if (elementByTurnId.get(turnId) !== node) return false;
-            elementByTurnId.delete(turnId);
-            spy.unregister(turnId);
+            spy.unregister(node);
             return true;
         };
         const collectTurnNodes = (node: Node): HTMLElement[] => {
             if (!(node instanceof HTMLElement)) return [];
             const collected: HTMLElement[] = [];
-            if (node.matches('[data-turn-id]')) collected.push(node);
-            node.querySelectorAll<HTMLElement>('[data-turn-id]').forEach((el) => collected.push(el));
+            if (node.matches(TURN_ROW_SELECTOR)) collected.push(node);
+            node.querySelectorAll<HTMLElement>(TURN_ROW_SELECTOR).forEach((el) => collected.push(el));
             return collected;
         };
 
-        container.querySelectorAll<HTMLElement>('[data-turn-id]').forEach(registerTurnNode);
+        container.querySelectorAll<HTMLElement>(TURN_ROW_SELECTOR).forEach(registerTurnNode);
         spy.markDirty();
 
         const mutationObserver = new MutationObserver((records) => {

@@ -54,7 +54,7 @@ import { Icon } from "@/components/icon/Icon";
 import { formatTimestampForDisplay } from './timeFormat';
 import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool } from './parts/toolRenderUtils';
-import { ShownToolCard } from './parts/ShownToolCard';
+import { ShownPartCard, ShownToolCard } from './parts/ShownToolCard';
 import { isShownInPlace } from '@/lib/opencode/tools';
 import { LiveActivityCollapse } from '../components/LiveActivityCollapse';
 import { ActivityRowSkipContext, isActivityRowPart, isToolRowShown } from '../lib/turns/activityRows';
@@ -576,7 +576,8 @@ const UserMessageBody = React.memo(({ messageId, parts, messageCreatedAt, isMobi
                     'flex items-center justify-end gap-1.5 [&_button]:!h-[26px] [&_button]:!w-[26px] [&_svg]:!size-[13px]',
                     alwaysShowActions
                         ? 'pointer-events-auto opacity-100'
-                        : 'pointer-events-none opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-hover/user-actions:pointer-events-auto group-hover/user-actions:opacity-100 group-hover/user-shell:pointer-events-auto group-hover/user-shell:opacity-100 has-[[data-popup-open]]:pointer-events-auto has-[[data-popup-open]]:opacity-100'
+                        // Some desktop shells report no hover even with a fine pointer.
+                        : 'pointer-events-none opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-hover/user-actions:pointer-events-auto group-hover/user-actions:opacity-100 group-hover/user-shell:pointer-events-auto group-hover/user-shell:opacity-100 has-[[data-popup-open]]:pointer-events-auto has-[[data-popup-open]]:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100'
                 )}
             >
                 {/* Touch reads the time in the actions sheet instead — see below. */}
@@ -1713,6 +1714,12 @@ const AssistantMessageBody = React.memo(({
             rendered = splitLiveActivity && part.type !== 'text' ? activityRendered : answerRendered;
 
             if (part.type === 'text') {
+                // Text with a UI block that a collapsed Activity keeps in view
+                // is drawn outside the fold (`getShownPages`), not here too.
+                if (part.id && hoistedPages?.has(part.id)) {
+                    i++;
+                    continue;
+                }
                 const textStart = slice?.from?.partId === part.id ? slice.from.offset : 0;
                 const textEnd = slice?.to?.partId === part.id && slice.to.offset > 0 ? slice.to.offset : undefined;
                 if (textStart > 0 || (slice?.from && part.id !== firstTextPartId)) {
@@ -1729,7 +1736,7 @@ const AssistantMessageBody = React.memo(({
                 }
                 if (splitLiveActivity && !hasRenderedAnswerText && textStart === 0) {
                     for (const pagePart of liveFinalActivity?.pages ?? []) {
-                        rendered.push(<ShownToolCard key={`page-${pagePart.id}`} part={pagePart} onShowPopup={onShowPopup} />);
+                        rendered.push(<ShownPartCard key={`page-${pagePart.id}`} part={pagePart} onShowPopup={onShowPopup} />);
                     }
                 }
                 hasRenderedAnswerText = true;

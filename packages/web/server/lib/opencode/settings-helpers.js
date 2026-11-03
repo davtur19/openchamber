@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { createRequire } from 'node:module';
 
-import { isWorkflowFeatureAvailable } from '../workflows/feature-flag.js';
 import { isOverviewFeatureAvailable } from '../overview/feature-flag.js';
 import { isPermissionMode } from '../permission-auto-accept/modes.js';
 import { asNonEmptyString } from '../shared/guards.js';
@@ -587,6 +586,9 @@ export const createSettingsHelpers = (dependencies) => {
     }
     if (typeof candidate.autoSaveEnabled === 'boolean') {
       result.autoSaveEnabled = candidate.autoSaveEnabled;
+    }
+    if (candidate.fileEditorWrapLines === true || candidate.fileEditorWrapLines === false) {
+      result.fileEditorWrapLines = candidate.fileEditorWrapLines;
     }
     if (candidate.confirmFileTreeMove === true || candidate.confirmFileTreeMove === false) {
       result.confirmFileTreeMove = candidate.confirmFileTreeMove;
@@ -1360,8 +1362,8 @@ export const createSettingsHelpers = (dependencies) => {
       hasDesktopUiPassword,
       // Agent memory needs the OpenChamber server, like routing below.
       agentMemoryFeatureAvailable: true,
-      // The same for agent workflows (`OPENCHAMBER_WORKFLOWS_ENABLE`).
-      agentWorkflowFeatureAvailable: isWorkflowFeatureAvailable(),
+      // The same for agent workflows.
+      agentWorkflowFeatureAvailable: true,
       // The overview page ships dark until `OPENCHAMBER_OVERVIEW_ENABLED` is set.
       overviewFeatureAvailable: isOverviewFeatureAvailable(),
       // Jev routing needs the OpenChamber server, so it is present here and

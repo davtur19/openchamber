@@ -121,7 +121,6 @@ import { createMessageQueueRuntime } from './lib/message-queue/runtime.js';
 import { createAutoReviewRuntime } from './lib/auto-review/runtime.js';
 import { createDispatchResultsRuntime } from './lib/dispatch-results/runtime.js';
 import { createPrWatchRuntime } from './lib/pr-watch/runtime.js';
-import { isWorkflowFeatureAvailable } from './lib/workflows/feature-flag.js';
 import { createWorkflowAgentSessions } from './lib/workflows/agent-session.js';
 import { createWorkflowRuntime } from './lib/workflows/runtime.js';
 import { createWorkflowRunStore } from './lib/workflows/store.js';
@@ -161,6 +160,7 @@ import { readOpenCodeServiceEnv } from './lib/environment/opencode-service-env.j
 import { OPENCODE_CONFIG_DIR } from './lib/opencode/shared.js';
 import { createWorktreeBootstrapStore } from './lib/git/worktree-bootstrap-storage.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
+import { createClientPushAccess } from './lib/notifications/client-push-access.js';
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { attachRealtimeProxy } from './lib/realtime-proxy.js';
 import { createRelayService, relayBlockedByEnterprise } from './lib/relay/service.js';
@@ -533,6 +533,8 @@ const pushRuntime = createPushRuntime({
   PUSH_SUBSCRIPTIONS_FILE_PATH,
   readSettingsFromDiskMigrated,
   writeSettingsToDisk,
+  // clientPushAccess needs this runtime, so it is created later: read it per send.
+  getInvalidSessionKeys: () => clientPushAccess.invalidSessionKeys(),
 });
 
 const getOrCreateVapidKeys = (...args) => pushRuntime.getOrCreateVapidKeys(...args);
@@ -571,6 +573,7 @@ const apnsRuntime = createApnsRuntime({
   APNS_TOKENS_FILE_PATH,
   readSettingsFromDiskMigrated,
   relayKeyStore,
+  getInvalidSessionKeys: () => clientPushAccess.invalidSessionKeys(),
 });
 
 const addOrUpdateApnsToken = (...args) => apnsRuntime.addOrUpdateApnsToken(...args);
@@ -1176,9 +1179,9 @@ const sessionKnowledgeRuntime = createSessionKnowledgeRuntime({
     return settings?.agentSecretToolEnabled !== false;
   },
   isWorkflowAvailable: async () => {
-    if (isExternalOpenCode || ENV_SKIP_OPENCODE_START || !isWorkflowFeatureAvailable()) return false;
-    const settings = await readSettingsFromDiskMigrated().catch(() => null);
-    return settings?.agentWorkflowToolEnabled !== false;
+    if (isExternalOpenCode || ENV_SKIP_OPENCODE_START) return false;
+    // Declared further down; only ever called after startup.
+    return isWorkflowToolEnabled();
   },
   areAgentToolsInCodeMode: async () => {
     const settings = await readSettingsFromDiskMigrated().catch(() => null);
@@ -1358,42 +1361,35 @@ const prWatchRuntime = createPrWatchRuntime({
 prWatchRuntime.start(globalMessageStreamHub);
 
 // Agent workflows: scripts that fan a task out to many agents, run here while
-// the agent that asked stays free. Absent entirely unless the build flag is set.
+// the agent that asked stays free. Off until the user turns the tool on.
 const isWorkflowToolEnabled = async () => {
-  if (!isWorkflowFeatureAvailable()) return false;
   const settings = await readSettingsFromDiskMigrated().catch(() => null);
-  return settings?.agentWorkflowToolEnabled !== false;
+  return settings?.agentWorkflowToolEnabled === true;
 };
-const workflowAgentSessions = isWorkflowFeatureAvailable()
-  ? createWorkflowAgentSessions({
-    buildOpenCodeUrl,
-    getOpenCodeAuthHeaders,
-    // Declared further down; only ever called after startup.
-    waitForOpenCodeReady: (...args) => waitForOpenCodeReady(...args),
-    globalEventHub: globalMessageStreamHub,
-  })
-  : null;
-const workflowRuntime = workflowAgentSessions
-  ? createWorkflowRuntime({
-    store: createWorkflowRunStore({ fsPromises, path, dataDir: OPENCHAMBER_DATA_DIR }),
-    agentSessions: workflowAgentSessions,
-    postSynthetic: workflowAgentSessions.postSynthetic,
-    // Declared further down; only ever called after startup.
-    broadcast: (event) => broadcastOpenChamberUiEvent(event),
-    isEnabled: isWorkflowToolEnabled,
-    fsPromises,
-    path,
-  })
-  : null;
-if (workflowRuntime) {
-  void workflowRuntime.start().catch((error) => {
-    console.warn('[workflows] failed to restore runs:', error?.message ?? error);
-  });
-  // Reports wait for OpenCode, which answers once the event hub connects.
-  globalMessageStreamHub.subscribeStatus((status) => {
-    if (status?.type === 'connect') void workflowRuntime.deliverPending();
-  });
-}
+const workflowAgentSessions = createWorkflowAgentSessions({
+  buildOpenCodeUrl,
+  getOpenCodeAuthHeaders,
+  // Declared further down; only ever called after startup.
+  waitForOpenCodeReady: (...args) => waitForOpenCodeReady(...args),
+  globalEventHub: globalMessageStreamHub,
+});
+const workflowRuntime = createWorkflowRuntime({
+  store: createWorkflowRunStore({ fsPromises, path, dataDir: OPENCHAMBER_DATA_DIR }),
+  agentSessions: workflowAgentSessions,
+  postSynthetic: workflowAgentSessions.postSynthetic,
+  // Declared further down; only ever called after startup.
+  broadcast: (event) => broadcastOpenChamberUiEvent(event),
+  isEnabled: isWorkflowToolEnabled,
+  fsPromises,
+  path,
+});
+void workflowRuntime.start().catch((error) => {
+  console.warn('[workflows] failed to restore runs:', error?.message ?? error);
+});
+// Reports wait for OpenCode, which answers once the event hub connects.
+globalMessageStreamHub.subscribeStatus((status) => {
+  if (status?.type === 'connect') void workflowRuntime.deliverPending();
+});
 
 // Full-text search over this server's conversations (user messages and agent
 // replies). Opt-in: off by default, and off means idle. The index is derived
@@ -1643,6 +1639,10 @@ const remoteClientAuthRuntime = createRemoteClientAuthRuntime({
   path,
   crypto,
   storePath: REMOTE_CLIENTS_FILE_PATH,
+});
+const clientPushAccess = createClientPushAccess({
+  listClients: remoteClientAuthRuntime.listClients,
+  removeDevicesOfSessions: [apnsRuntime.removeApnsDevicesOfSessions, pushRuntime.removePushDevicesOfSessions],
 });
 const clientPairingRuntime = createClientPairingRuntime({
   fsPromises,
@@ -2349,7 +2349,6 @@ async function main(options = {}) {
     agentToolRuntime,
     limitFailoverRuntime,
     readSettings: () => readSettingsFromDiskMigrated(),
-    isWorkflowAvailable: isWorkflowFeatureAvailable,
   });
   await ensureChatsDir({ fsPromises, chatsDir: OPENCHAMBER_CHATS_DIR, warn: (message) => console.warn(`[data-dir] ${message}`) });
 
@@ -2699,6 +2698,7 @@ async function main(options = {}) {
     // Re-evaluate the relay lifecycle after pairing/device changes (a revoked or
     // redeemed device can flip relay demand on or off).
     reconcileRelay: () => (relayServiceInstance ? relayServiceInstance.reconcile() : Promise.resolve()),
+    removeClientPushDevices: clientPushAccess.removeDevicesOfClients,
     getPairingTransports: resolvePairingTransports,
     getDirectCandidateUrls: resolveDirectLanUrls,
     // Stable server identity for client-side verification of learned addresses.

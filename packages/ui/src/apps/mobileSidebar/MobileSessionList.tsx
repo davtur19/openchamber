@@ -1,5 +1,4 @@
 import React from 'react';
-import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import type { SessionProjectListProps } from '@/components/session/sidebar/projects/SessionProjectScroller';
 import {
   applyShowControl,
@@ -23,6 +22,7 @@ import { MobileDraftRow, MobileRunRow, MobileWorktreeRow } from './MobileWorkRow
 import { MOBILE_TREE_GEOMETRY } from './mobileSidebarGeometry';
 import { useMobileSidebarActions, useMobileSidebarRowsStore } from './mobileSidebarState';
 import { MobileShowControl } from './mobileRowParts';
+import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 
 // Rows that line up with gutterless two-line rows start this far in.
 const FLAT_TEXT_INSET_PX = 12;
@@ -139,13 +139,13 @@ export const MobileSessionList: React.FC<SessionProjectListProps> = ({ model, vi
         return <MobileShowControl
           more={row.more}
           fewer={row.fewer}
-          indent={row.flat ? FLAT_TEXT_INSET_PX : geometry.textLeft(row.depth ?? 0)}
+          indent={row.flat ? FLAT_TEXT_INSET_PX : row.detailed ? geometry.detailedLeft(row.depth ?? 0) : geometry.textLeft(row.depth ?? 0)}
           onShow={(control) => applyShowControl(row, control, { model, actions })}
         />;
       case 'status':
         return <MobileStatusRow
           row={row}
-          indent={row.flat ? FLAT_TEXT_INSET_PX : geometry.textLeft(row.depth ?? 0)}
+          indent={row.flat ? FLAT_TEXT_INSET_PX : row.detailed ? geometry.detailedLeft(row.depth ?? 0) : geometry.textLeft(row.depth ?? 0)}
           onRetry={() => retryGroupStatus(row, childStores)}
           onGrantAccess={() => { void grantGroupAccess(row, childStores); }}
         />;
@@ -162,7 +162,7 @@ export const MobileSessionList: React.FC<SessionProjectListProps> = ({ model, vi
     // Inset from the screen's edges by the drawer's one gutter (12px, as the
     // header's buttons, the search field and the footer): rows are rounded
     // tiles, not bands across the screen.
-    <ScrollShadow ref={setScrollElement} className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 [overflow-anchor:none]">
+    <ScrollableOverlay ref={setScrollElement} outerClassName="min-h-0 flex-1" className="px-3 pb-4 [overflow-anchor:none]" useScrollShadow disableHorizontal>
       <SessionSidebarRows
         model={model.rowModel}
         scrollElement={scrollElement}
@@ -172,6 +172,6 @@ export const MobileSessionList: React.FC<SessionProjectListProps> = ({ model, vi
         guideSlotStartPx={geometry.base}
         scrollRequest={scrollRequest}
       />
-    </ScrollShadow>
+    </ScrollableOverlay>
   );
 };

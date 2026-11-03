@@ -1,4 +1,5 @@
 import type { Session } from '@/lib/opencode/model';
+import { listedChildren } from './listedChildren';
 import type { SessionFolder, SessionFoldersMap } from '@/stores/useSessionFoldersStore';
 import { compareSessionsByLifecycleOrder, EMPTY_SESSION_ORDER_RANKS } from '@/sync/session-ordering';
 import { isSessionPinned } from '@/lib/sessionPins';
@@ -117,14 +118,15 @@ export type SessionSidebarRow =
   | (RowBase & { kind: 'draft'; draft: SessionDraft; depth: number; projectId: string | null; mixed: boolean; detailed: boolean })
   | (RowBase & { kind: 'run'; run: MultiRunSummary; depth: number; laneNodes: readonly SessionNode[]; blockingSessionIds: readonly string[]; projectId: string | null; projectLabel: string | null; groupDirectory: string | null; renderContext: SessionSidebarRenderContext; expansionKey: string; expanded: boolean; forceExpanded: boolean; detailed: boolean })
   // The rows below line up with the text of the rows they close: `flat` with
-  // gutterless timeline-style rows, otherwise with the tree level `depth`.
+  // gutterless timeline-style rows, `detailed` with two-line titles,
+  // otherwise with the tree level `depth`.
   | (RowBase & { kind: 'empty'; emptyKind: 'sidebar' | 'search' | 'archived' | 'section'; depth?: number })
-  | (RowBase & { kind: 'status'; status: SessionSidebarGroupStatus; group: SessionGroup; groupKey: string; depth?: number; flat?: boolean })
+  | (RowBase & { kind: 'status'; status: SessionSidebarGroupStatus; group: SessionGroup; groupKey: string; depth?: number; flat?: boolean; detailed?: boolean })
   /**
    * Show more while rows remain hidden, Show less once more than the first batch shows; one row holds both.
    * `requestedCount`: how many the user asked for; `currentCount` also moves as sessions arrive and leave.
    */
-  | (RowBase & { kind: 'show-control'; more: boolean; fewer: boolean; containerKey: string; currentCount: number; requestedCount: number; increment: number; depth?: number; flat?: boolean });
+  | (RowBase & { kind: 'show-control'; more: boolean; fewer: boolean; containerKey: string; currentCount: number; requestedCount: number; increment: number; depth?: number; flat?: boolean; detailed?: boolean });
 
 export type SessionSidebarStickyHeader = {
   rowIndex: number;
@@ -289,7 +291,7 @@ export const countSessionSearchMatches = (nodes: readonly SessionNode[], normali
   const idQuery = normalizedQuery.trim().toLowerCase();
   const isIdQuery = idQuery.startsWith('ses_');
   const count = (list: readonly SessionNode[]): number => list.reduce((total, node) => (
-    total + (!isIdQuery || node.session.id.toLowerCase() === idQuery ? 1 : 0) + count(node.children)
+    total + (!isIdQuery || node.session.id.toLowerCase() === idQuery ? 1 : 0) + count(listedChildren(node))
   ), 0);
   return count(nodes);
 };
@@ -437,6 +439,8 @@ const indexNodes = (roots: readonly SessionNode[]): IndexedSessionNodes => {
       preorderIds.push(entry.node.session.id);
       subtreeRangeByNode.set(entry.node, [start, start + 1]);
       stack.push({ node: entry.node, visited: true });
+      // The whole tree, rows or not (collapsed children, workflow agents):
+      // selecting a session selects what it started, for bulk archive.
       for (let index = entry.node.children.length - 1; index >= 0; index -= 1) {
         const child = entry.node.children[index];
         if (child) stack.push({ node: child, visited: false });
@@ -614,12 +618,13 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
       // Whether its subsessions show, for a row that has some: the sidebar
       // animates the change like a header's.
       const expanded = search || args.expandedParents.has(expandedKey(rowContext, options.archived, current.node.session.id));
+      const children = listedChildren(current.node);
       push({
         kind: 'session',
         key: rowKey,
         estimateSize: detailed ? TIMELINE_SESSION_ESTIMATE : estimateSessionRow(rowContext),
-        expanded: current.node.children.length > 0 ? expanded : undefined,
-        forceExpanded: current.node.children.length > 0 ? search : undefined,
+        expanded: children.length > 0 ? expanded : undefined,
+        forceExpanded: children.length > 0 ? search : undefined,
         detailed,
         node: current.node,
         blockingBadgeSessionScopes: current.depth === baseDepth
@@ -653,8 +658,8 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
         descendantRange,
       }));
       if (!expanded) continue;
-      for (let index = current.node.children.length - 1; index >= 0; index -= 1) {
-        const child = current.node.children[index];
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        const child = children[index];
         if (child) stack.push({ node: child, depth: current.depth + 1, directory });
       }
     }
@@ -888,17 +893,17 @@ export const buildSessionSidebarRowModel = (args: SessionSidebarRowModelArgs): S
     const more = remaining > 0;
     const fewer = requested > initialLimit && limitedNodes.length > initialLimit;
     if (!search && !group.isArchivedBucket && (more || fewer)) {
-      push({ kind: 'show-control', key: `${rowKeyBase}:show`, estimateSize: STATUS_ESTIMATE, more, fewer, containerKey: groupKey, currentCount: limitedVisibleCount, requestedCount: requested, increment, depth: contentDepth, flat: false });
+      push({ kind: 'show-control', key: `${rowKeyBase}:show`, estimateSize: STATUS_ESTIMATE, more, fewer, containerKey: groupKey, currentCount: limitedVisibleCount, requestedCount: requested, increment, depth: contentDepth, flat: false, detailed: detailedWorks });
     }
 
     // An empty group lists nothing: its header has no chevron, and new
     // sessions start from the header's own button. Only the archive bucket
     // says it is empty.
     if (sourceNodes.length === 0 && visibleFolders.length === 0) {
-      if (status && status.state !== 'ready') push({ kind: 'status', key: `${rowKeyBase}:status`, estimateSize: STATUS_ESTIMATE, status, group, groupKey, depth: contentDepth });
+      if (status && status.state !== 'ready') push({ kind: 'status', key: `${rowKeyBase}:status`, estimateSize: STATUS_ESTIMATE, status, group, groupKey, depth: contentDepth, detailed: detailedWorks });
       else if (group.isArchivedBucket) push({ kind: 'empty', key: `${rowKeyBase}:empty`, estimateSize: STATUS_ESTIMATE, emptyKind: 'archived', depth: contentDepth });
     } else if (status && status.state !== 'ready' && status.state !== 'loading') {
-      push({ kind: 'status', key: `${rowKeyBase}:status`, estimateSize: STATUS_ESTIMATE, status, group, groupKey, depth: contentDepth });
+      push({ kind: 'status', key: `${rowKeyBase}:status`, estimateSize: STATUS_ESTIMATE, status, group, groupKey, depth: contentDepth, detailed: detailedWorks });
     }
   };
 

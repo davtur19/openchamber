@@ -13,8 +13,8 @@ import type { ChatMessageEntry, TurnRecord } from '../lib/turns/types';
 import { getShownPages } from '../lib/turns/liveActivity';
 import { summarizeLiveActivity } from '../lib/turns/liveActivitySummary';
 import { LiveActivityCollapse } from './LiveActivityCollapse';
-import { ShownToolCard } from '../message/parts/ShownToolCard';
-import { useActivityRowGlide } from './useActivityRowGlide';
+import { ShownPartCard } from '../message/parts/ShownToolCard';
+import { useActivityRowGlide, useLiveRowsFloor } from './useActivityRowGlide';
 import { foldContentId, finalActivityContentId, useTurnFold } from './useTurnFold';
 import { dispatchRowExpand } from '../lib/scroll/timelineScrollIntent';
 
@@ -58,7 +58,10 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
     );
     const hiddenRows = trim?.hiddenRows ?? 0;
     const rowsRef = React.useRef<HTMLDivElement>(null);
+    const previewFloorRef = React.useRef<HTMLDivElement>(null);
+    const previewRef = React.useRef<HTMLDivElement>(null);
     useActivityRowGlide(rowsRef, hiddenRows, !settled && !expanded);
+    useLiveRowsFloor(previewFloorRef, previewRef, !settled && !expanded);
     // While the turn works, what the agent does after its last page (more
     // steps, the reply it is still writing) is drawn below the page, in the
     // order it happened.
@@ -125,25 +128,29 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
                 </div>
             </div>
             {expanded ? null : (
-                <>
-                    <LiveActivityCollapse expanded={isExpanded} id={contentId}>
-                        <div ref={rowsRef}>
+                // What stays in view, its rows above and below the pages, as
+                // one window: the latest rows of the turn.
+                <div ref={previewFloorRef}>
+                    <div ref={previewRef}>
+                        <LiveActivityCollapse expanded={isExpanded} id={contentId}>
+                            <div ref={rowsRef}>
+                                <ActivityRowSkipContext.Provider value={rowSkip}>
+                                    {messagesAbovePages.map((message) => (
+                                        <React.Fragment key={message.info.id}>{renderMessage(message)}</React.Fragment>
+                                    ))}
+                                </ActivityRowSkipContext.Provider>
+                            </div>
+                        </LiveActivityCollapse>
+                        {!finalMessage && pages.length > 0 ? <TurnPages pages={pages} /> : null}
+                        {messagesBelowPages.length > 0 ? (
                             <ActivityRowSkipContext.Provider value={rowSkip}>
-                                {messagesAbovePages.map((message) => (
+                                {messagesBelowPages.map((message) => (
                                     <React.Fragment key={message.info.id}>{renderMessage(message)}</React.Fragment>
                                 ))}
                             </ActivityRowSkipContext.Provider>
-                        </div>
-                    </LiveActivityCollapse>
-                    {!finalMessage && pages.length > 0 ? <TurnPages pages={pages} /> : null}
-                    {messagesBelowPages.length > 0 ? (
-                        <ActivityRowSkipContext.Provider value={rowSkip}>
-                            {messagesBelowPages.map((message) => (
-                                <React.Fragment key={message.info.id}>{renderMessage(message)}</React.Fragment>
-                            ))}
-                        </ActivityRowSkipContext.Provider>
-                    ) : null}
-                </>
+                        ) : null}
+                    </div>
+                </div>
             )}
         </div>
     );
@@ -153,7 +160,7 @@ export function TurnFold({ turn, hasLaterAssistant, expanded, finalMessageId, on
 function TurnPages({ pages }: { pages: ReturnType<typeof getShownPages> }) {
     return (
         <div className="chat-message-column">
-            {pages.map((part) => <ShownToolCard key={part.id} part={part} />)}
+            {pages.map((part) => <ShownPartCard key={part.id} part={part} />)}
         </div>
     );
 }

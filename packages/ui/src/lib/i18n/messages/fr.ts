@@ -13,6 +13,7 @@ import { fileContentSearchI18n } from './file-content-search.i18n';
 import { fileEditorAidsI18n } from './file-editor-aids.i18n';
 import { htmlRenderI18n } from './html-render.i18n';
 import { documentToolbarI18n } from './document-toolbar.i18n';
+import { uiBlocksI18n } from './ui-blocks.i18n';
 import { updateDialogCanaryI18n } from './update-dialog-canary.i18n';
 import { secretRequestI18n } from './secret-request.i18n';
 import { sessionNoticesI18n } from './session-notices.i18n';
@@ -23,6 +24,7 @@ import { compactionSettingsI18n } from './compaction-settings.i18n';
 import { heapSnapshotI18n } from './heap-snapshot.i18n';
 import { consoleBudgetsI18n } from './console-budgets.i18n';
 import { imageToolI18n } from './image-tool.i18n';
+import { agentStatusI18n } from './agent-status.i18n';
 import { snippetsI18n } from './snippets.i18n';
 import { sidebarWorkI18n } from './sidebar-work.i18n';
 import { sidebarSectionsI18n } from './sidebar-sections.i18n';
@@ -178,6 +180,7 @@ export const dict = {
   ...fileEditorAidsI18n.fr,
   ...htmlRenderI18n.fr,
   ...documentToolbarI18n.fr,
+  ...uiBlocksI18n.fr,
   ...updateDialogCanaryI18n.fr,
   ...secretRequestI18n.fr,
   ...sessionNoticesI18n.fr,
@@ -188,6 +191,7 @@ export const dict = {
   ...heapSnapshotI18n.fr,
   ...consoleBudgetsI18n.fr,
   ...imageToolI18n.fr,
+  ...agentStatusI18n.fr,
   ...snippetsI18n.fr,
   ...sidebarWorkI18n.fr,
   ...sidebarSectionsI18n.fr,
@@ -307,6 +311,7 @@ export const dict = {
   'sessions.scheduledTasks.dialog.error.chooseProjectFirst': 'Choisissez d\'abord un projet',
   'sessions.scheduledTasks.dialog.toast.loadFailed': 'Échec du chargement des tâches planifiées',
   'sessions.scheduledTasks.dialog.toast.saved': 'Tâche planifiée enregistrée',
+  'sessions.scheduledTasks.dialog.toast.moveLeftOriginal': 'La tâche s’exécute désormais à son nouvel emplacement, mais l’ancienne copie n’a pas pu être supprimée. Supprimez-la là-bas pour que la tâche ne s’exécute pas deux fois.',
   'sessions.scheduledTasks.dialog.toast.updateFailed': 'Échec de la mise à jour de la tâche',
   'sessions.scheduledTasks.dialog.toast.deleted': 'Tâche planifiée supprimée',
   'sessions.scheduledTasks.dialog.toast.deleteFailed': 'Échec de la suppression de la tâche',
@@ -2158,7 +2163,7 @@ export const dict = {
   'chat.statusRow.todo.priority.low': 'Faible priorité',
   'chat.statusRow.actions.stopGeneratingAria': 'Arrêter de générer',
   'chat.statusRow.tasksTitle': 'Tâches',
-  'chat.statusRow.modelStatus': '{model} · {status}',
+  'chat.statusRow.modelStatus': '{model} {status}',
   'chat.statusRow.summary.activeLeft': '{active} actif · {left} restant',
   'chat.revertIndicator.redo': 'Refaire',
   'chat.revertIndicator.redoAria': 'Rétablir : restaurer les messages annulés',
@@ -2711,7 +2716,6 @@ export const dict = {
   'projectEditDialog.toast.iconDiscovered': 'Icône de projet découverte',
   'openInApp.actions.open': 'Ouvrir',
   'openInApp.actions.openInAria': 'Ouvert dans {app}',
-  'openInApp.actions.chooseAppAria': 'Choisissez l\'application à ouvrir',
   'openInApp.actions.copyPath': 'Copier le chemin',
   'openInApp.actions.refreshApps': 'Actualiser les applications',
   'openInApp.toast.pathCopied': 'Chemin copié dans le presse-papiers',
@@ -3903,12 +3907,16 @@ export const dict = {
   'sessions.scheduledTasks.editor.worktree.cleanup.keepHint': 'Le worktree et sa branche restent après le run pour que tu puisses examiner le résultat.',
   'sessions.scheduledTasks.editor.worktree.notRepo': 'Le dossier du projet n’est pas un dépôt git ; les exécutions utiliseront le checkout tel quel.',
   'sessions.scheduledTasks.dialog.usesDefaults': 'Valeurs par défaut des sessions',
-  'sessions.moveChatToProject.menu': 'Déplacer vers un projet…',
-  'sessions.moveChatToProject.hint': 'Poursuivre cette conversation dans un projet',
-  'sessions.moveChatToProject.title': 'Déplacer le chat vers un projet',
-  'sessions.moveChatToProject.description': 'La conversation se poursuit dans le dossier du projet. Les fichiers créés par le chat restent où ils sont.',
-  'sessions.moveChatToProject.success': 'Chat déplacé vers le projet',
-  'sessions.moveChatToProject.failed': 'Impossible de déplacer le chat',
+  'sessions.moveSession.menu': 'Déplacer la session…',
+  'sessions.moveSession.hint': 'Les fichiers restent dans l\'ancien dossier',
+  'sessions.moveSession.title': 'Déplacer la session',
+  'sessions.moveSession.description': 'La session continue dans le dossier choisi. Les fichiers restent où ils sont.',
+  'sessions.moveSession.chooseFolder': 'Choisir un dossier…',
+  'sessions.moveSession.current': 'Dossier actuel',
+  'sessions.moveSession.success': 'Session déplacée',
+  'sessions.moveSession.failed': 'Impossible de déplacer la session',
+  'chat.folderMissing.text': 'Le dossier {name} n\'existe plus',
+  'chat.folderMissing.action': 'Déplacer la session',
   'chat.worktreeSetup.running': 'Préparation du worktree : exécution des commandes de configuration du projet…',
   'chat.draft.creatingSession': 'Création de la session…',
   'desktopHostSwitcher.startup.fellBackToLocal': 'Sa connexion ne s’est pas ouverte, OpenChamber a donc démarré sur Local. Connectez-la depuis le sélecteur d’instances dès qu’elle est joignable.',

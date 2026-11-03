@@ -1507,13 +1507,15 @@ export async function resolveRepositoryGitPaths(directory) {
 
 /**
  * Each listed remote's fetch and push URL from `git remote -v` output, as
- * `git remote get-url [--push]` reports them: the first URL of several, and a
- * remote with no URL read as a URL equal to its name, as Git does. Lines may
- * end in CRLF (Git for Windows); a kept `\r` would match no line and read
- * every remote as URL-less. Anything after the URL-kind marker — Git 2.54+
- * appends the partial-clone filter there as `[blob:none]` — is decoration
- * about the remote, never part of the URL, and is ignored whether or not its
- * shape is recognized.
+ * `git remote get-url [--push]` reports them, the first URL of several. A
+ * remote with no fetch URL is left out: Git lists it as a bare `name\t` line
+ * and `get-url` answers its name, which is no address anyone configured. A
+ * git-annex special remote is such a section. Lines may end in CRLF (Git for
+ * Windows); a kept `\r` would match no line and read every remote as
+ * URL-less. Anything after the URL-kind marker (Git 2.54+ appends the
+ * partial-clone filter there as `[blob:none]`) is decoration about the
+ * remote, never part of the URL, and is ignored whether or not its shape is
+ * recognized.
  */
 export function parseRemoteListing(names, listing) {
   const urls = new Map();
@@ -1524,9 +1526,10 @@ export function parseRemoteListing(names, listing) {
     if (entry[match[3]] === undefined) entry[match[3]] = match[2];
     urls.set(match[1], entry);
   }
-  return names.map((name) => {
-    const fetchUrl = urls.get(name)?.fetch ?? name;
-    return { name, fetchUrl, pushUrl: urls.get(name)?.push ?? fetchUrl };
+  return names.flatMap((name) => {
+    const fetchUrl = urls.get(name)?.fetch;
+    if (fetchUrl === undefined) return [];
+    return [{ name, fetchUrl, pushUrl: urls.get(name)?.push ?? fetchUrl }];
   });
 }
 
@@ -1535,8 +1538,11 @@ export function parseRemoteListing(names, listing) {
  * them (`insteadOf` rewrites applied), read with one `git remote -v` instead
  * of two Git processes per remote: repository identity is resolved several
  * times per Git operation, and a repository with many remotes spent most of
- * that time starting processes. When the listing itself fails, each remote is
- * asked on its own, so a failure never reads as URL-less remotes.
+ * that time starting processes. A remote with no fetch URL is left out
+ * (`parseRemoteListing`). When the listing itself fails, each remote is asked
+ * on its own, so a failure never reads as URL-less remotes; there the
+ * configured `remote.<name>.url` keys tell which remotes have a URL, because
+ * `get-url` answers a URL-less remote's name.
  */
 export async function getRepositoryRemoteUrls(directory) {
   const [namesResult, listResult] = await Promise.all([
@@ -1546,7 +1552,12 @@ export async function getRepositoryRemoteUrls(directory) {
   if (!namesResult.success) return [];
   const names = String(namesResult.stdout || '').split(/\r?\n/).map((name) => name.trim()).filter(Boolean).sort();
   if (listResult.success) return parseRemoteListing(names, listResult.stdout);
-  return Promise.all(names.map(async (name) => {
+  const configured = await runGitCommand(directory, ['config', '--name-only', '--get-regexp', '^remote\\..*\\.url$']);
+  // Exit 1 is "no key matched"; any other failure keeps every remote.
+  const withUrl = configured.success || configured.exitCode === 1
+    ? new Set(String(configured.stdout || '').split(/\r?\n/).filter(Boolean).map((key) => key.slice('remote.'.length, -'.url'.length)))
+    : null;
+  return Promise.all(names.filter((name) => !withUrl || withUrl.has(name)).map(async (name) => {
     const [fetchResult, pushResult] = await Promise.all([
       runGitCommand(directory, ['remote', 'get-url', name]),
       runGitCommand(directory, ['remote', 'get-url', '--push', name]),
@@ -3557,14 +3568,24 @@ const refResolvesToCommit = async (git, ref) => git
 /**
  * The branch list includes remote-only branches that `ls-remote` reported but
  * the repository never fetched (#2098), so a comparison can name a ref that does
- * not exist locally. Say that plainly instead of letting git's "ambiguous
- * argument" surface as an opaque failure.
+ * not exist locally: typically the base of a stacked pull request in a fresh
+ * worktree. A `<remote>/<branch>` ref on a configured remote is fetched as that
+ * single branch, the way `checkoutBranch` does. Anything still unresolved is
+ * named plainly instead of letting git's "ambiguous argument" surface as an
+ * opaque failure.
  */
-async function assertRangeRefsResolve(git, refs) {
+async function assertRangeRefsResolve(git, repoRoot, refs) {
   for (const ref of refs) {
-    if (!(await refResolvesToCommit(git, ref))) {
-      throw new Error(`Ref "${ref}" is not available locally. Fetch it before comparing.`);
+    if (await refResolvesToCommit(git, ref)) continue;
+    const remoteRef = parseRemoteBranchRef(ref);
+    const remotes = remoteRef ? await git.getRemotes().catch(() => []) : [];
+    if (remoteRef && remoteRef.branch !== 'HEAD' && remotes.some((entry) => entry?.name === remoteRef.remote)) {
+      // A failed fetch (offline, branch deleted on the remote) falls through to
+      // the error below; a concurrent fetch of the same ref may already have won.
+      await fetchRemoteBranchRef(repoRoot, remoteRef.remote, remoteRef.branch).catch(() => undefined);
+      if (await refResolvesToCommit(git, ref)) continue;
     }
+    throw new Error(`Ref "${ref}" is not available locally. Fetch it before comparing.`);
   }
 }
 
@@ -3621,7 +3642,7 @@ export async function getRangeDiff(directory, { base, head, path: filePath, cont
     throw new Error('base and head are required');
   }
 
-  await assertRangeRefsResolve(git, [baseRef, headRef]);
+  await assertRangeRefsResolve(git, repoRoot, [baseRef, headRef]);
 
   const args = ['diff', '--no-color', '--no-ext-diff'];
   if (typeof contextLines === 'number' && !Number.isNaN(contextLines)) {
@@ -3800,7 +3821,7 @@ export async function getRangeFiles(directory, { base, head, includeWorkingTree 
     throw new Error('base and head are required');
   }
 
-  await assertRangeRefsResolve(git, [baseRef, headRef]);
+  await assertRangeRefsResolve(git, repoRoot, [baseRef, headRef]);
 
   // `-C` (copy detection among changed files only, so cheap) makes copies
   // surface as C entries instead of plain additions; rename detection is on

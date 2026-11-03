@@ -486,6 +486,19 @@ agent together with the model `setAgent` resolved for it. Only
 clear the pick. An effort picked in a draft is a choice of its own: those same
 paths leave the draft alone while `currentVariantSelection.override` is set.
 
+A live unsent model pick survives changing the agent,
+before either an older per-agent override or the new agent's pinned-model
+catalog lookup can replace it. `selectionSource: 'manual'` alone grants no such
+precedence because restoring a session writes that source too.
+
+### Why only an unsent model pick overrides a pinned model
+
+An explicit model pick describes the next message's model. Switching agents
+keeps that intent, including while the pinned model is absent from discovery.
+A model restored from the session lets the newly selected agent apply its
+pinned model. Treating every manual source as live intent would prevent that
+normal agent selection from working. Picker changes make no session API writes.
+
 An open session's agent goes both ways. A pick applies to the session when the
 next message is sent (`switchAgent` before the prompt). Until then it is the
 session's unsent pick (`useSelectionStore.pickSessionAgent`, persisted): the
@@ -550,7 +563,7 @@ A fresh provider read waiting behind another request keeps its original instance
 
 ### Why image models load with the catalog and stay out of `providers`
 
-`getProvidersForConfig` asks `model.list` for chat and image models, because OpenCode lists chat models only by default and a provider whose models all generate images would vanish from Settings → Providers, leaving it impossible to edit or disable there. `loadProviders` keeps `providers`, which every chat picker reads, to chat models (an unset `type` is chat). A provider with image models only goes to `imageOnlyProviders`, which only Settings → Providers reads through `selectImageOnlyProvidersForDirectory`. Adding those providers to `providers` with an empty or image-only model list was rejected: the pickers, default-model resolution and the catalog cache all treat a listed model as one a chat can run. The list is runtime-only and is not persisted or cached.
+`getProvidersForConfig` asks `model.list` for chat and image models, because OpenCode lists chat models only by default and a provider whose models all generate images would vanish from Settings → Providers, leaving it impossible to edit or disable there. `loadProviders` keeps `providers`, which every chat picker reads, to chat models (an unset `type` is chat). A provider with no chat model goes to `settingsOnlyProviders`, which only Settings → Providers reads through `selectSettingsOnlyProvidersForDirectory`: one with image models carries them, and one with no model at all carries an empty list. The second case is what a Copilot Free or Student sign-in leaves: OpenCode lists the provider and its stored credential and answers no model. Adding those providers to `providers` with an empty or image-only model list was rejected: the pickers, default-model resolution and the catalog cache all treat a listed model as one a chat can run. The list is runtime-only and is not persisted or cached.
 
 Since OpenCode 2.2 the provider, model and agent routes wait for the directory's plugins, so the first read of a directory OpenCode has not started is complete, and `getProvidersForConfig` asks for models, the default and providers together. For a folder inside an isolated space the providers come from the host project the space was made from, so a catalog event in that project also takes the space's loaded folders out of the freshness window. A catalog event still means the catalog changed (a provider connected, a config edit, a plugin reloaded). The catalog refresh re-reads only the active directory, so every catalog event also calls `markConfigCatalogStale(kind, directory)`, which takes that directory's providers or agents out of the 30-second freshness window (`null`, for a server-wide event such as a credential change, takes out all of them). Switching back to a directory whose catalog changed while it was in the background therefore re-reads it. Meanwhile the composer labels the selected model, its efforts and the agent with `selectKnownCatalogModel` / `selectKnownAgent`, which fall back to any other directory's snapshot, so a cold directory shows the name it already knows rather than a raw id or "Select agent". That fallback is display only: selection, effort resolution and validation read the active catalog, and a model or agent no catalog knows is shown as before.
 

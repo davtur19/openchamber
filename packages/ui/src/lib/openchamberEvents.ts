@@ -11,6 +11,7 @@ import { messageQueueUpdatedEventSchema, type MessageQueueUpdatedEvent } from '@
 import { autoReviewUpdatedEventSchema, type AutoReviewUpdatedEvent } from '@/stores/useAutoReviewStore';
 import { prWatchUpdatedEventSchema, type PrWatchUpdatedEvent } from '@/sync/pr-watch';
 import { sessionWarmingSnapshotSchema, type SessionWarmingSnapshot } from '@/stores/useSessionWarmingStore';
+import { isJsonValue, type JsonValue } from '@openchamber/sdk';
 import { z } from 'zod';
 import { trackedItemRecordsSchema } from './trackedItems/model';
 import type { SyncEvent } from './opencode/events';
@@ -72,7 +73,8 @@ const UNKNOWN_BROWSER_CONTROL_CONTEXT: BrowserControlRequestContext = { director
 
 /**
  * The agent asked for a file to be shown in the user's file panel. Every
- * client receives it; one showing that project opens the file.
+ * client receives it; the desktop file panel opens the file, and the mobile
+ * shell opens it only for the session on screen and announces the others.
  */
 const fileOpenRequestSchema = z.object({
   path: z.string().min(1),
@@ -144,11 +146,27 @@ type SourceControlProvidersChangedEvent = { type: 'source-control-providers-chan
 type TrackerProvidersChangedEvent = { type: 'tracker-providers-changed' };
 
 /**
+ * The set of usage providers the server serves changed: an extension that
+ * reports usage was approved, enabled, updated, paused or removed. Carries
+ * nothing; listeners re-read the provider list.
+ */
+type QuotaProvidersChangedEvent = { type: 'quota-providers-changed' };
+
+/**
  * The extension catalog changed: an extension was installed, updated, approved,
  * paused, enabled or removed, or a folder install's files changed. Carries
  * nothing; listeners re-read the catalog.
  */
 type GuestsChangedEvent = { type: 'guests-changed' };
+
+/** An extension's service sent its open frames something (`emit`). */
+type GuestServiceEvent = { type: 'guest-service-event'; guestId: string; topic: string; data: JsonValue };
+
+/**
+ * A theme file in the server's custom themes folder was added, removed or
+ * rewritten. Carries nothing; listeners re-read the custom themes.
+ */
+type ThemesChangedEvent = { type: 'themes-changed' };
 
 /**
  * A usage limit stopped a session and the server moved on: the provider to
@@ -271,6 +289,7 @@ const notificationPropertiesSchema = z.object({
 });
 
 type OpenChamberEvent =
+  | { type: 'terminal-sessions-changed' }
   | { type: 'notification'; payload: z.infer<typeof notificationPropertiesSchema> }
   /** `connectionId` names this connection on the server; absent from servers before tracked items. */
   | { type: 'event-stream-ready'; connectionId: string | null }
@@ -301,7 +320,10 @@ type OpenChamberEvent =
   | BrowserProviderResetEvent
   | SourceControlProvidersChangedEvent
   | TrackerProvidersChangedEvent
+  | QuotaProvidersChangedEvent
   | GuestsChangedEvent
+  | GuestServiceEvent
+  | ThemesChangedEvent
   | LimitFailoverEvent
   | ProjectContextChangedEvent
   | SessionFoldersChangedEvent
@@ -322,6 +344,10 @@ let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 let runtimeChangeUnsubscribe: (() => void) | null = null;
 const listeners = new Set<Listener>();
+// The ready event of the open connection. A listener that subscribes after it
+// arrived gets it replayed, since the server sends it once per connection and
+// some listeners (tracked-items interest) cannot act until they have it.
+let readyEvent: Extract<OpenChamberEvent, { type: 'event-stream-ready' }> | null = null;
 
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 45_000;
@@ -365,6 +391,7 @@ const scheduleReconnect = () => {
 };
 
 const cleanupSource = () => {
+  readyEvent = null;
   clearHeartbeatTimer();
   streamAbortController?.abort();
   streamAbortController = null;
@@ -468,7 +495,13 @@ const getEventProperties = (properties: unknown): Record<string, unknown> | null
   return properties as Record<string, unknown>;
 };
 
+const guestServiceEventSchema = z.object({ guestId: z.string().min(1), topic: z.string().min(1), data: z.json() });
+
 const dispatchFromEnvelope = (envelope: { type: string; properties: unknown }) => {
+  if (envelope.type === 'openchamber:terminal-sessions-changed') {
+    for (const listener of listeners) listener({ type: 'terminal-sessions-changed' });
+    return;
+  }
   if (envelope.type === 'openchamber:notification') {
     const parsed = notificationPropertiesSchema.safeParse(envelope.properties);
     if (parsed.success) {
@@ -481,7 +514,9 @@ const dispatchFromEnvelope = (envelope: { type: string; properties: unknown }) =
     reconnectAttempt = 0;
     const ready = eventStreamReadySchema.safeParse(envelope.properties);
     const connectionId = ready.success ? ready.data.connectionId ?? null : null;
-    for (const listener of listeners) listener({ type: 'event-stream-ready', connectionId });
+    const event = { type: 'event-stream-ready', connectionId } as const;
+    readyEvent = event;
+    for (const listener of listeners) listener(event);
     return;
   }
 
@@ -615,8 +650,25 @@ const dispatchFromEnvelope = (envelope: { type: string; properties: unknown }) =
     return;
   }
 
+  if (envelope.type === 'openchamber:quota-providers-changed') {
+    for (const listener of listeners) listener({ type: 'quota-providers-changed' });
+    return;
+  }
+
   if (envelope.type === 'openchamber:guests-changed') {
     for (const listener of listeners) listener({ type: 'guests-changed' });
+    return;
+  }
+
+  if (envelope.type === 'openchamber:guest-service-event') {
+    const parsed = guestServiceEventSchema.safeParse(envelope.properties);
+    if (!parsed.success || !isJsonValue(parsed.data.data)) return;
+    for (const listener of listeners) listener({ type: 'guest-service-event', ...parsed.data });
+    return;
+  }
+
+  if (envelope.type === 'openchamber:themes-changed') {
+    for (const listener of listeners) listener({ type: 'themes-changed' });
     return;
   }
 
@@ -822,6 +874,12 @@ export const subscribeOpenchamberEvents = (listener: Listener): (() => void) => 
   listeners.add(listener);
   ensureRuntimeChangeSubscription();
   connect();
+  if (readyEvent) {
+    const event = readyEvent;
+    queueMicrotask(() => {
+      if (readyEvent === event && listeners.has(listener)) listener(event);
+    });
+  }
 
   return () => {
     listeners.delete(listener);

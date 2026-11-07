@@ -1,3 +1,4 @@
+import React from 'react';
 import { create } from 'zustand';
 import { z } from 'zod';
 
@@ -5,7 +6,7 @@ import { fetchUsageStats, fetchUsageTools, resolveUsageProjectID, type UsageStat
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
 
-import { rangeStart, type UsageRange } from './usageStatsModel';
+import { isSameLocalDay, rangeStart, type UsageRange } from './usageStatsModel';
 
 /**
  * Stats page reports, cached per (runtime, range, project).
@@ -19,6 +20,9 @@ import { rangeStart, type UsageRange } from './usageStatsModel';
  *
  * `7d`/`30d` are relative to now: an entry reports the range it was fetched
  * for (`stats.range`) and when (`fetchedAt`), which the page shows.
+ *
+ * `1d` is the one range that expires: its name says today, so a report read on
+ * an earlier local day is dropped and read again, whether or not it was forced.
  */
 
 export type UsageStatsRequest = { range: UsageRange; projectDirectory: string | null };
@@ -26,6 +30,7 @@ export type UsageStatsRequest = { range: UsageRange; projectDirectory: string | 
 export type UsageStatsEntry = {
   /** Last successful report; kept on screen through refreshes and failed refreshes. */
   stats: UsageStats | null;
+  /** When the read of `stats` started, so a read that crosses midnight counts as the old day's. */
   fetchedAt: number | null;
   loading: boolean;
   /** Message of the last failed read; cleared by the next success. */
@@ -74,9 +79,10 @@ type UsageStatsStore = {
   entries: Record<string, UsageStatsEntry>;
   /**
    * Loads a report for the request under the current runtime. Without `force`
-   * this reads a key with no report, and refreshes a cached report in the
-   * background once it is stale. A key whose last read failed waits for
-   * `force` (the page's retry) instead of scanning again on every open.
+   * this reads a key with no report, refreshes a cached report in the
+   * background once it is stale, and reads a `1d` report again when it is from
+   * an earlier local day. A key whose last read failed waits for `force` (the
+   * page's retry) instead of scanning again on every open.
    */
   load: (request: UsageStatsRequest, options?: { force?: boolean }) => Promise<void>;
   toolEntries: Record<string, UsageToolsEntry>;
@@ -235,6 +241,9 @@ const readPersistedEntries = (
   return entries;
 };
 
+const isExpiredToday = (request: UsageStatsRequest, entry: UsageStatsEntry | undefined, at: number): boolean =>
+  request.range === '1d' && entry?.fetchedAt != null && !isSameLocalDay(entry.fetchedAt, at);
+
 export function createUsageStatsStore(
   fetcher: UsageStatsFetcher,
   runtimeKey: () => string,
@@ -250,8 +259,11 @@ export function createUsageStatsStore(
   let activeStatsKey: string | null = null;
   let statsController = new AbortController();
   // Tool reads stay independent: changing the range aborts the report scan,
-  // not a tool scan the user already asked for.
+  // not a tool scan the user already asked for. The map names the read each
+  // key still wants, so a read left over from a replaced or expired report
+  // cannot land on the newer one.
   let toolsController = new AbortController();
+  const currentToolReads = new Map<string, symbol>();
 
   return create<UsageStatsStore>()((set, get) => {
     const patch = (key: string, next: Partial<UsageStatsEntry>) =>
@@ -304,13 +316,15 @@ export function createUsageStatsStore(
         }
         const entry = get().entries[key];
         if (entry?.loading) return;
-        if (!options?.force) {
+        const startedAt = now();
+        const expired = isExpiredToday(request, entry, startedAt);
+        if (!options?.force && !expired) {
           // A failed read is retried only on request; otherwise every open of
           // the page would start another multi-minute scan.
           if (entry?.error) return;
           // A report stamped ahead of the clock is not fresh: the clock moved
           // back, and waiting for it to catch up would serve old numbers.
-          const age = entry?.stats && entry.fetchedAt !== null ? now() - entry.fetchedAt : -1;
+          const age = entry?.stats && entry.fetchedAt !== null ? startedAt - entry.fetchedAt : -1;
           if (age >= 0 && age < USAGE_STATS_FRESH_MS) return;
         }
 
@@ -319,13 +333,25 @@ export function createUsageStatsStore(
         statsController.abort();
         statsController = new AbortController();
         const { signal } = statsController;
-        patch(key, { loading: true });
+        if (expired) {
+          // Dropped before the read, so a failed read shows as an error and
+          // never as yesterday's totals under Today.
+          patch(key, { stats: null, fetchedAt: null, loading: true, error: null });
+          currentToolReads.delete(key);
+          set((state) => {
+            const { [key]: _expiredTools, ...toolEntries } = state.toolEntries;
+            return { toolEntries };
+          });
+          persist();
+        } else {
+          patch(key, { loading: true });
+        }
         try {
           const stats = await fetcher(request, signal);
           if (signal.aborted || startGeneration !== generation) return;
           // Written under the key the read started for: switching filters
           // while it runs never lets it land on another filter.
-          patch(key, { stats, fetchedAt: now(), loading: false, error: null });
+          patch(key, { stats, fetchedAt: startedAt, loading: false, error: null });
           persist();
           // A refreshed report moves the window, so tools already shown follow it.
           if (get().toolsRequested) void get().loadTools(request, { force: Boolean(get().toolEntries[key]?.tools) });
@@ -353,28 +379,43 @@ export function createUsageStatsStore(
         const { signal } = toolsController;
         // The report on screen can be replaced by a refresh that lands while
         // this read runs. Counts for the old window must not be committed
-        // under the new one; they are dropped and counted again.
+        // under the new one. Each start names its read, so a read for a report
+        // that was replaced or expired is dropped instead of retried.
+        const read = Symbol('usage tools read');
+        currentToolReads.set(key, read);
+        const isDropped = () =>
+          signal.aborted || startGeneration !== generation || currentToolReads.get(key) !== read;
         const reportWindowChanged = () => {
           const current = get().entries[key]?.stats?.range;
           return !current || current.from !== window.from || current.to !== window.to;
         };
-        const retryForCurrentWindow = () => {
+        const discardForCurrentWindow = () => {
+          const current = get().entries[key]?.stats?.range;
+          if (!current) {
+            // The report was dropped (Today expiry): the entry goes with it,
+            // and the report that lands next starts its own tool read.
+            set((state) => {
+              const { [key]: _droppedTools, ...toolEntries } = state.toolEntries;
+              return { toolEntries };
+            });
+            return;
+          }
           patchTools(key, { loading: false });
           void get().loadTools(request, { force: true });
         };
         patchTools(key, { loading: true });
         try {
           const tools = await toolsFetcher(request, window, signal);
-          if (signal.aborted || startGeneration !== generation) return;
+          if (isDropped()) return;
           if (reportWindowChanged()) {
-            retryForCurrentWindow();
+            discardForCurrentWindow();
             return;
           }
           patchTools(key, { tools, loading: false, error: null });
         } catch (error) {
-          if (signal.aborted || startGeneration !== generation) return;
+          if (isDropped()) return;
           if (reportWindowChanged()) {
-            retryForCurrentWindow();
+            discardForCurrentWindow();
             return;
           }
           patchTools(key, { loading: false, error: error instanceof Error ? error.message : String(error) });
@@ -386,6 +427,7 @@ export function createUsageStatsStore(
       reset: () => {
         generation += 1;
         activeStatsKey = null;
+        currentToolReads.clear();
         statsController.abort();
         toolsController.abort();
         statsController = new AbortController();
@@ -406,6 +448,30 @@ export const useUsageStatsStore = createUsageStatsStore(
   fetchToolsFromOpencode,
   getSafeStorage(),
 );
+
+/** How often an open Today report checks whether the local day has changed. */
+const TODAY_CHECK_INTERVAL_MS = 60_000;
+
+/**
+ * Keeps Today current while the page stays open. `load` reads only once the
+ * day has changed, so the checks cost nothing the rest of the time. A clock
+ * check survives sleep and daylight saving, where a timer aimed at midnight
+ * would not.
+ */
+export function useTodayRollover(enabled: boolean, load: () => void): void {
+  React.useEffect(() => {
+    if (!enabled) return undefined;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    const interval = window.setInterval(load, TODAY_CHECK_INTERVAL_MS);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [enabled, load]);
+}
 
 export const selectUsageToolsEntry = (
   state: Pick<UsageStatsStore, 'toolEntries'>,

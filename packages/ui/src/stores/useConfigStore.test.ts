@@ -161,6 +161,7 @@ mock.module('@/lib/opencode/client', () => ({
     }),
     getDirectory: mock(() => clientDirectory),
     getFilesystemHome: async () => '/workspace',
+    getFilesystemHomeInfo: async () => ({ home: '/workspace', chatsRoot: '/workspace/.config/openchamber/chats' }),
     getSystemInfo: async () => ({ homeDirectory: '/workspace' }),
     checkHealth: () => checkHealthImpl(),
     probeHealth: (options?: { waitMs?: number }) => {
@@ -1902,6 +1903,48 @@ describe('useConfigStore provider persistence', () => {
     expect(clientDirectoryMoves).toEqual([]);
   });
 
+  test('startup with a chat draft loads the Chats root catalog, not the active project one (#6283)', async () => {
+    clientDirectory = DIRECTORY;
+    const agentDirectories: Array<string | null | undefined> = [];
+    listAgentsImpl = async (directory) => {
+      agentDirectories.push(directory);
+      return [testAgent('build')];
+    };
+    const draftBefore = useSessionUIStore.getState().newSessionDraft;
+    useSessionUIStore.setState({ currentSessionId: null, newSessionDraft: { ...draftBefore, open: true, target: 'chat' } });
+    try {
+      await useConfigStore.getState().initializeApp();
+    } finally {
+      useSessionUIStore.setState({ newSessionDraft: draftBefore });
+    }
+
+    expect(useConfigStore.getState().activeDirectoryKey).toBe('/workspace/.config/openchamber/chats');
+    expect(agentDirectories).toEqual(['/workspace/.config/openchamber/chats']);
+    expect(clientDirectoryMoves).toEqual([]);
+  });
+
+  test('startup left a chat draft while the Chats root was loading keeps the opened session catalog (#6283)', async () => {
+    const chatDirectory = '/workspace/.config/openchamber/chats/chat-1';
+    clientDirectory = chatDirectory;
+    const agentDirectories: Array<string | null | undefined> = [];
+    listAgentsImpl = async (directory) => {
+      agentDirectories.push(directory);
+      return [testAgent('build')];
+    };
+    const draftBefore = useSessionUIStore.getState().newSessionDraft;
+    useSessionUIStore.setState({ currentSessionId: null, newSessionDraft: { ...draftBefore, open: true, target: 'chat' } });
+    try {
+      const startup = useConfigStore.getState().initializeApp();
+      useSessionUIStore.setState({ currentSessionId: 'ses_chat', currentSessionDirectory: DIRECTORY, newSessionDraft: draftBefore });
+      await startup;
+    } finally {
+      useSessionUIStore.setState({ newSessionDraft: draftBefore });
+    }
+
+    expect(useConfigStore.getState().activeDirectoryKey).toBe(DIRECTORY);
+    expect(agentDirectories).toEqual([DIRECTORY]);
+  });
+
   test('startup without an open session still loads an unknown folder under the active project', async () => {
     clientDirectory = '/workspace';
     const agentDirectories: Array<string | null | undefined> = [];
@@ -2323,6 +2366,36 @@ describe('useConfigStore provider persistence', () => {
 
     expect(calls).toBe(2);
     expect(useConfigStore.getState().providers.map((entry) => entry.id)).toEqual(['plugin']);
+  });
+
+  test('fresh provider and agent triggers during a fresh read share a post-call replacement', async () => {
+    const providers = deferred<TestProviderResponse>();
+    const agents = deferred<TestAgent[]>();
+    const newProviders = deferred<TestProviderResponse>();
+    const newAgents = deferred<TestAgent[]>();
+    let providerReads = 0;
+    let agentReads = 0;
+    getProvidersForConfigImpl = () => ++providerReads === 1 ? providers.promise : newProviders.promise;
+    listAgentsImpl = () => ++agentReads === 1 ? agents.promise : newAgents.promise;
+    const providerBefore = getProvidersCalls;
+    const agentBefore = listAgentsCalls;
+    const triggers = Array.from({ length: 8 }, () => [
+      useConfigStore.getState().loadProviders({ directory: DIRECTORY, fresh: true }),
+      useConfigStore.getState().loadAgents({ directory: DIRECTORY, fresh: true }),
+    ]).flat();
+    providers.resolve(providerResponse('old'));
+    agents.resolve([{ name: 'build', mode: 'primary' }]);
+    await Promise.all(triggers.slice(0, 2));
+    for (let index = 0; index < 20; index += 1) await Promise.resolve();
+    expect(getProvidersCalls - providerBefore).toBe(2);
+    expect(listAgentsCalls - agentBefore).toBe(2);
+    newProviders.resolve(providerResponse('live'));
+    newAgents.resolve([{ name: 'new-build', mode: 'primary' }]);
+    await Promise.all(triggers);
+    expect(getProvidersCalls - providerBefore).toBe(2);
+    expect(listAgentsCalls - agentBefore).toBe(2);
+    expect(useConfigStore.getState().directoryScoped[DIRECTORY]?.providers[0]?.id).toBe('live');
+    expect(useConfigStore.getState().directoryScoped[DIRECTORY]?.agents[0]?.name).toBe('new-build');
   });
 
   test('a directory whose providers never loaded is read once more on its own', async () => {

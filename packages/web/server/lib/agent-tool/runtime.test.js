@@ -70,7 +70,7 @@ describe('agent tool action allowlist', () => {
 
   it('asks for the task name in the language of the user', () => {
     const workName = OPENCHAMBER_CONTROL_ACTION_DEFINITIONS.find(({ action }) => action === 'work.name');
-    expect(workName.description).toContain("in the language of the user's latest message");
+    expect(workName.description).toContain("in the user's latest language");
   });
 
   it.each([
@@ -731,6 +731,13 @@ describe('managed agent tool runtime', () => {
       expect(tools.openchamber.input.properties.parameters.properties).not.toHaveProperty(field);
     }
     expect(scheduleParameters.disabled.type).toBe('boolean');
+    for (const field of ['runInWorktree', 'baseBranch', 'cleanupWorktree']) {
+      expect(scheduleParameters).toHaveProperty(field);
+      expect(tools.openchamber.input.properties.parameters.properties).not.toHaveProperty(field);
+    }
+    expect(scheduleParameters.runInWorktree.type).toBe('boolean');
+    expect(scheduleParameters.cleanupWorktree.type).toBe('boolean');
+    expect(scheduleParameters.baseBranch.type).toBe('string');
 
     await runtime.materializePlugin({ includeControl: true, includeSchedule: false });
     expect(await loadTools(dataDir, 'schedule-disabled')).not.toHaveProperty('openchamber_schedule');

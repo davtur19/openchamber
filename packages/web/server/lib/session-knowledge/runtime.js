@@ -28,6 +28,7 @@ export const KNOWLEDGE_ENTRY_KEYS = {
   memory: 'openchamber.memory',
   guidance: 'openchamber.guidance',
   responseStyle: 'openchamber.response-style',
+  extensions: 'openchamber.extensions',
 };
 
 /** Budget for each entry; anything past it is cut, loudly. */
@@ -224,6 +225,18 @@ const buildPinnedBlock = ({ notes, plans }) => {
 };
 
 /**
+ * What a shell fence in a reply does, stated in every session that has the
+ * `openchamber_render` tool, which marks a session a person reads. Without it
+ * an agent writes such a command in a plain fence, which gets no run button,
+ * and asks the user to report back. OpenCode runs it with stdin closed, where
+ * the session runs, so it is no way to reach a password prompt or the user's
+ * own machine.
+ */
+export const REPLY_COMMAND_GUIDANCE = "A command the user should run themselves, such as one that deletes or publishes something:"
+  + " put it in a ```bash block in your reply and end the turn. The block has a Run button; the command runs in this session's folder with no input,"
+  + " so nothing that prompts, and when it ends you get its output and continue on your own without a message from the user.";
+
+/**
  * When to reach for a workflow, stated in every session that has the
  * `openchamber_workflow` tool. A run costs many agents, so the agent starts
  * one only when the user asks; spotting a task that fits is the agent's job
@@ -250,11 +263,12 @@ export const WORKFLOW_GUIDANCE = 'The openchamber_workflow tool runs a script th
 export const SECRET_REQUEST_GUIDANCE = "The openchamber_secret tool asks the user for a secret (API key, token, password) on a private card in the chat."
   + " Whenever you need one, call it: never ask for a secret in the chat or tell the user to paste one there.";
 
-const buildGuidance = ({ linking, rendering, secrets, workflows, directTools }) => [
+const buildGuidance = ({ linking, naming, rendering, secrets, workflows, directTools }) => [
   linking ? SESSION_LINK_GUIDANCE : '',
-  linking ? WORK_NAME_GUIDANCE : '',
+  linking && naming ? WORK_NAME_GUIDANCE : '',
   rendering ? UI_BLOCKS_GUIDANCE : '',
   rendering ? RENDER_PAGE_GUIDANCE : '',
+  rendering ? REPLY_COMMAND_GUIDANCE : '',
   secrets ? SECRET_REQUEST_GUIDANCE : '',
   workflows ? WORKFLOW_GUIDANCE : '',
   (linking || rendering || secrets || workflows) && directTools ? DIRECT_TOOLS_GUIDANCE : '',
@@ -265,15 +279,17 @@ const buildGuidance = ({ linking, rendering, secrets, workflows, directTools }) 
  * away; a key left out keeps what the session holds, which is what a branch
  * that could not be read means.
  */
-export const buildKnowledgeEntries = ({ notes, plans, memory, linking = false, rendering = false, secrets = false, workflows = false, directTools = true, checkout = null, responseStyleInstruction }) => {
+export const buildKnowledgeEntries = ({ notes, plans, memory, linking = false, naming = false, rendering = false, secrets = false, workflows = false, directTools = true, checkout = null, responseStyleInstruction, extensions }) => {
   const entries = {
     [KNOWLEDGE_ENTRY_KEYS.pinned]: truncate(buildPinnedBlock({ notes, plans })),
     [KNOWLEDGE_ENTRY_KEYS.memory]: truncate(buildMemoryBlock(memory)),
-    [KNOWLEDGE_ENTRY_KEYS.guidance]: buildGuidance({ linking, rendering, secrets, workflows, directTools }),
+    [KNOWLEDGE_ENTRY_KEYS.guidance]: buildGuidance({ linking, naming, rendering, secrets, workflows, directTools }),
   };
   if (responseStyleInstruction !== undefined) {
     entries[KNOWLEDGE_ENTRY_KEYS.responseStyle] = (responseStyleInstruction ?? '').trim();
   }
+  // Absent when the catalog could not be read: the session keeps what it holds.
+  if (extensions !== undefined) entries[KNOWLEDGE_ENTRY_KEYS.extensions] = truncate(extensions);
   // The branch is told while the agent has the tool, whose worktree move is
   // the one thing it can do about a busy branch.
   if (!linking) entries[KNOWLEDGE_ENTRY_KEYS.checkout] = '';
@@ -289,6 +305,8 @@ export const createSessionKnowledgeRuntime = (dependencies) => {
     isAgentMemoryEnabled,
     // Whether this session's agent has the `openchamber` tool to link with.
     isSessionLinkingAvailable = null,
+    // A linked worktree or isolated space; main checkout tasks keep session titles.
+    isWorkNamingAvailable = async () => false,
     // The checked-out branch, or '' when none is checked out. Failures throw;
     // read only while the agent has the tool.
     readCheckoutBranch = null,
@@ -304,6 +322,9 @@ export const createSessionKnowledgeRuntime = (dependencies) => {
     // Whether the managed tools run through Code Mode's catalog rather than
     // as direct tools.
     areAgentToolsInCodeMode = async () => false,
+    // `(directory)`: what active extensions add for this session, or null when
+    // that cannot be told. Reads no process, since every send waits on it.
+    readExtensionInstructions = async () => '',
     // Pins live in OpenChamber's own session metadata store.
     readSessionMetadata = null,
     persistSessionMetadata = null,
@@ -391,6 +412,8 @@ export const createSessionKnowledgeRuntime = (dependencies) => {
     const linking = typeof isSessionLinkingAvailable === 'function'
       ? await Promise.resolve(isSessionLinkingAvailable()).catch(() => false)
       : false;
+    const naming = linking && Boolean(directory)
+      && await Promise.resolve(isWorkNamingAvailable(directory)).catch(() => false);
     // The branch is read only while the tool that moves a session off it is there.
     const branch = linking && directory && readCheckoutBranch
       ? await Promise.resolve(readCheckoutBranch(directory)).catch(() => null)
@@ -405,7 +428,7 @@ export const createSessionKnowledgeRuntime = (dependencies) => {
     const workflows = await Promise.resolve(isWorkflowAvailable()).catch(() => false);
     const directTools = !(await Promise.resolve(areAgentToolsInCodeMode()).catch(() => false));
 
-    return { notes, plans, memory, linking, rendering, secrets, workflows, directTools, checkout };
+    return { notes, plans, memory, linking, naming, rendering, secrets, workflows, directTools, checkout };
   };
 
   /**
@@ -472,6 +495,7 @@ export const createSessionKnowledgeRuntime = (dependencies) => {
       const entries = buildKnowledgeEntries({
         ...await collect(directory, readPins(session)),
         responseStyleInstruction,
+        extensions: await readExtensionInstructions(directory).catch(() => null) ?? undefined,
       });
       const writes = await Promise.allSettled(Object.entries(entries).map(([key, text]) => (text
         ? instructionEntries.put(sessionId, directory, key, text)

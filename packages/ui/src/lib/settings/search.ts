@@ -153,6 +153,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isMobile,
   },
   {
+    id: 'appearance.chat-font-size',
+    page: 'appearance',
+    titleKey: 'settings.openchamber.visual.field.chatFontSize',
+    keywords: ['chat', 'font', 'text size', 'messages'],
+    isAvailable: (ctx) => !ctx.isMobile,
+  },
+  {
     id: 'appearance.interface-font-weight',
     page: 'appearance',
     titleKey: 'settings.openchamber.visual.field.interfaceFontWeight',
@@ -438,6 +445,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['copy', 'clipboard', 'plain text', 'markdown', 'selection'],
   },
   {
+    id: 'chat.selection-approval-text',
+    page: 'chat',
+    titleKey: 'settings.openchamber.visual.field.selectionApprovalText',
+    descriptionKey: 'settings.openchamber.visual.field.selectionApprovalTextInfo',
+    keywords: ['lgtm', 'sounds good', 'approval', 'feedback', 'selection', 'citation', 'comment', 'thumbs up', '👍'],
+  },
+  {
     id: 'chat.inline-assistant-actions',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.showSplitAssistantMessageActions',
@@ -719,6 +733,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'sessions',
     titleKey: 'settings.layout.sessions.retention.target',
     keywords: ['archive', 'archived', 'only', 'delete', 'cleanup', 'retention'],
+  },
+  {
+    id: 'sessions.retention-include-in-work',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.sessionRetention.field.includeInWork',
+    descriptionKey: 'settings.openchamber.sessionRetention.field.includeInWorkInfo',
+    keywords: ['in work', 'done', 'cleanup', 'retention', 'archive', 'delete'],
+    // The checkbox shows only while sessions in work are on.
+    isAvailable: () => useUIStore.getState().sessionWorkEnabled,
   },
   {
     id: 'sessions.retention-period',
@@ -1126,6 +1149,12 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['worktree', 'setup commands', 'shared', 'team', 'only mine'],
   },
   {
+    id: 'projects.worktree.teardown',
+    page: 'projects',
+    titleKey: 'settings.openchamber.worktrees.teardown.title',
+    keywords: ['worktree', 'teardown', 'cleanup', 'delete', 'docker', 'stop'],
+  },
+  {
     id: 'projects.environment',
     page: 'projects',
     titleKey: 'settings.projects.environment.title',
@@ -1492,6 +1521,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
       page: 'shortcuts',
       titleKey: action.settingsLabelKey,
       keywords: ['shortcut', 'hotkey', 'keyboard', 'keybinding'],
+      isAvailable: (ctx) => !('nativeMenu' in action) || (ctx.isDesktop && (action.nativeMenu === 'all' || !ctx.isMac)),
     })),
   {
     id: 'voice.playback',
@@ -1598,6 +1628,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'notifications',
     titleKey: 'settings.notifications.page.events.title',
     keywords: ['completion', 'subtasks', 'errors', 'questions'],
+  },
+  {
+    id: 'notifications.pullRequests',
+    page: 'notifications',
+    titleKey: 'settings.notifications.pullRequests.label',
+    descriptionKey: 'settings.notifications.pullRequests.info',
+    keywords: ['pull requests', 'merge queue', 'auto-merge', 'checks', 'github'],
+    isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
     id: 'notifications.push',

@@ -1390,6 +1390,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         saveSessionAgentSelection,
         contextHydrated,
         providers,
+        sessionRecordChoice?.providerID,
+        sessionRecordChoice?.modelID,
+        saveSessionModelSelection,
         sync,
     ]);
 

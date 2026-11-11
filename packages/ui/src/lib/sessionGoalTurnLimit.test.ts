@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { isSessionGoalMaxAutoTurns } from './sessionGoalTurnLimit';
 
 describe('goal turn limit', () => {
-  test('accepts whole numbers from 0 to 10000, 0 meaning unlimited', () => {
-    expect([0, 1, 20, 200, 10_000].map(isSessionGoalMaxAutoTurns)).toEqual([true, true, true, true, true]);
-    expect([-1, 10_001, 2.5, Number.NaN].map(isSessionGoalMaxAutoTurns)).toEqual([false, false, false, false]);
+  test('accepts whole numbers from 1 to 200 only', () => {
+    expect([1, 20, 200].map(isSessionGoalMaxAutoTurns)).toEqual([true, true, true]);
+    expect([0, -1, 201, 2.5, Number.NaN].map(isSessionGoalMaxAutoTurns)).toEqual([false, false, false, false, false]);
   });
 });

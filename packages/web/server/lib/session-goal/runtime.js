@@ -82,13 +82,11 @@ const REASON_CHAR_LIMIT = 200;
 // the intended stop conditions; this only prevents a runaway loop. The user
 // sets it in Settings within these bounds.
 const DEFAULT_MAX_AUTO_TURNS = 20;
-const MAX_AUTO_TURNS_LIMIT = 10_000;
+const MAX_AUTO_TURNS_LIMIT = 200;
 
-/** The saved cap (0 = unlimited, honored as Infinity), or the default when missing or out of bounds. */
+/** The saved cap, or the default when it is missing or out of bounds. */
 export const normalizeMaxAutoTurns = (value) => (
-  Number.isInteger(value) && value >= 0 && value <= MAX_AUTO_TURNS_LIMIT
-    ? (value === 0 ? Infinity : value)
-    : DEFAULT_MAX_AUTO_TURNS
+  Number.isInteger(value) && value >= 1 && value <= MAX_AUTO_TURNS_LIMIT ? value : DEFAULT_MAX_AUTO_TURNS
 );
 // Consecutive check failures tolerated before the goal stops: one transient
 // hiccup allows a single unchecked continuation; a dead checker must not drive
@@ -117,7 +115,7 @@ const escapeXmlText = (value) => String(value ?? '')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
-const formatMaxAutoTurns = (value) => (value === Infinity ? 'unlimited' : String(value));
+const formatMaxAutoTurns = (value) => String(value);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -461,10 +459,9 @@ export const createSessionGoalRuntime = ({
   idleQuietMs = IDLE_QUIET_MS,
   kickoffQuietMs = KICKOFF_QUIET_MS,
   recheckMs = ACTIVITY_RECHECK_MS,
-  // Live turn-limit override: () => number | Infinity, sync or async, re-read
-  // fresh each tick so a settings change applies without a restart. The server
-  // passes an async reader where 0 means unlimited (Infinity). Defaults to the
-  // disk setting when omitted.
+  // Live turn-limit override: () => number, sync or async, re-read fresh each
+  // tick so a settings change applies without a restart. Defaults to the disk
+  // setting when omitted.
   getMaxAutoTurns = () => readGoalSettings().maxAutoTurns,
   // Optional live override for the file-backed objective read: async () =>
   // number. Without it, readObjective() falls back to the static
@@ -527,6 +524,15 @@ export const createSessionGoalRuntime = ({
     getOpenCodeAuthHeaders,
     timeoutMs: FETCH_TIMEOUT_MS,
   });
+
+  /** Before OpenCode 2.2.6: the session's own running commands, read from its folder. */
+  const fetchOwnRunningShells = async (session, sessionId, directory) => {
+    const shellDirectory = typeof session.location?.directory === 'string' && session.location.directory
+      ? session.location.directory
+      : directory;
+    const shells = shellDirectory ? await activityProbe.fetchRunningShells(shellDirectory) : null;
+    return shells && shells.filter((shell) => shell.sessionID === sessionId);
+  };
 
   // v2 reports only that a session is running.
   const isWorkingStatus = (status) => Boolean(status);
@@ -750,8 +756,9 @@ export const createSessionGoalRuntime = ({
     // still working (nested ones included), recheck after another quiet
     // window: OpenCode normally runs the parent again when the subagent
     // finishes, but a missed parent idle event must not strand the goal. The
-    // check reads only the live active sessions and their lineage, never the
-    // parent's child history, which can grow to thousands of sessions.
+    // check reads only the live active sessions, OpenCode's job list and the
+    // parent's direct children, never the parent's whole child history, which
+    // can grow to thousands of sessions.
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) {
       armTimer(sessionId, directory, recheckMs);
@@ -759,12 +766,17 @@ export const createSessionGoalRuntime = ({
     }
     if (isWorkingStatus(statuses[sessionId])) return;
 
-    const subagentsWorking = await activityProbe.hasWorkingDescendants(sessionId, statuses);
-    if (subagentsWorking === null) {
+    // OpenCode 2.2.6+ lists the background subagents and images of the whole
+    // subagent tree. Child sessions OpenChamber starts itself (workflow agents)
+    // are no OpenCode jobs, so running direct children are asked for as well.
+    const backgroundJobs = await activityProbe.fetchRunningBackgroundJobs(sessionId);
+    if (backgroundJobs === null) {
       armTimer(sessionId, directory, recheckMs);
       return;
     }
-    if (subagentsWorking) {
+    const childrenWorking = backgroundJobs?.some((job) => job.kind !== 'shell')
+      || await activityProbe.hasWorkingChildren(sessionId, statuses);
+    if (childrenWorking !== false) {
       armTimer(sessionId, directory, recheckMs);
       return;
     }
@@ -879,16 +891,19 @@ export const createSessionGoalRuntime = ({
     // server, are not waited for. After an explicit Resume nothing is waited
     // for, and a failed or aborted turn settles below without waiting.
     if (goal.statusReason !== 'resumed' && !lastAssistantInfo.error) {
-      const shellDirectory = typeof session.location?.directory === 'string' && session.location.directory
-        ? session.location.directory
-        : directory;
-      const shells = shellDirectory ? await activityProbe.fetchRunningShells(shellDirectory) : null;
-      if (!shells) {
+      // Read after the messages, so a command of the turn just read is listed.
+      // The job list also holds the shells the session's subagents started.
+      const jobs = backgroundJobs && await activityProbe.fetchRunningBackgroundJobs(sessionId);
+      const shells = backgroundJobs
+        ? jobs && jobs.filter((job) => job.kind === 'shell')
+        : await fetchOwnRunningShells(session, sessionId, directory);
+      // A subagent or image the turn just read started holds the audit as well.
+      if (!shells || jobs?.some((job) => job.kind !== 'shell')) {
         armTimer(sessionId, directory, recheckMs);
         return;
       }
       const roundStartedAt = lastUserMessageCreatedAt(messages, goal.createdAt);
-      const waitingOn = shells.filter((shell) => shell.sessionID === sessionId && shell.startedAt >= roundStartedAt);
+      const waitingOn = shells.filter((shell) => shell.startedAt >= roundStartedAt);
       // Past the wait the command is most likely a server left running: the
       // turn is audited as it stands instead of stopping the goal over it.
       const stillWaiting = waitingOn.some((shell) => Date.now() - shell.startedAt < BACKGROUND_SHELL_WAIT_MS);
@@ -964,7 +979,7 @@ export const createSessionGoalRuntime = ({
     }
 
     // Auto-continuation safety cap → blocked. Resolved live so a setting
-    // change (including switching to unlimited) applies without a restart.
+    // change applies without a restart.
     if (goal.turnsUsed >= effectiveMaxAutoTurns) {
       await settleGoal({
         sessionId, directory, goal, status: 'blocked', statusReason: 'auto-continuation limit reached', tokensUsed, tokensBaseline, tokensCommitted, lastAccountedMessageID,

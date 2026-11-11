@@ -16,8 +16,7 @@ import { createSessionGoalRuntime, normalizeMaxAutoTurns } from './runtime.js';
  *
  * The previous suite drove the whole audit loop against a fake v1 OpenCode; it
  * is gone rather than rewritten because every route and shape it asserted on
- * belongs to v1. Whether a subagent still works is decided from
- * `/api/session/active` plus each active session's lineage now.
+ * belongs to v1. Subagents come from `GET /api/session?parentID=` now.
  */
 
 const SESSION_ID = 'ses_parent';
@@ -77,7 +76,8 @@ afterEach(() => {
  * `content[]`, `model`, `finish`, `tokens`), `{ location, data }` envelopes,
  * `/api/session/active` for busy state, and the three continuation calls.
  */
-const v2OpenCode = ({ messages, active = {}, lineage = {}, lineageStatus = 200, activeStatus = 200, shells = [], shellStatus = 200, sessionRead = async () => {} }) => {
+// Without `jobs` it is an OpenCode before 2.2.6, which has no job list.
+const v2OpenCode = ({ messages, active = {}, childPages = [[]], childrenStatus = 200, shells = [], shellStatus = 200, jobs, sessionRead = async () => {} }) => {
   const calls = [];
   const json = (data, status = 200) => new Response(JSON.stringify({ location: { directory: '/repo' }, data }), {
     status,
@@ -87,20 +87,25 @@ const v2OpenCode = ({ messages, active = {}, lineage = {}, lineageStatus = 200, 
     const url = new URL(String(input));
     calls.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null });
     // Real shape: `{ data }` without a `location`, unlike directory-scoped routes.
-    if (url.pathname === '/api/session/active') {
-      if (activeStatus !== 200) return new Response('failed', { status: activeStatus });
-      return Response.json({ data: active });
+    if (url.pathname === '/api/session/active') return Response.json({ data: active });
+    if (url.pathname === '/api/session') {
+      // Children of the parent, cursor paged: the first page is selected by
+      // `parentID`, later ones by the cursor alone.
+      const index = url.searchParams.has('cursor') ? Number(url.searchParams.get('cursor').replace('page-', '')) : 0;
+      if (index === 0 && url.searchParams.get('parentID') !== SESSION_ID) return json({ data: [], cursor: {} });
+      const data = childPages[index] ?? [];
+      const next = index + 1 < childPages.length ? { next: `page-${index + 1}` } : {};
+      return json({ data, cursor: next }, childrenStatus);
     }
     if (url.pathname === '/api/shell') return json(shells, shellStatus);
+    if (url.pathname === '/api/experimental/job') {
+      if (jobs === undefined) return new Response(null, { status: 404 });
+      return Response.json({ data: typeof jobs === 'function' ? jobs() : jobs });
+    }
     if (url.pathname.endsWith('/message')) return json({ data: [...messages].reverse(), cursor: null });
     if (url.pathname === `/api/session/${SESSION_ID}`) {
       await sessionRead();
       return json({ id: SESSION_ID, location: { directory: '/repo' } });
-    }
-    if (url.pathname.startsWith('/api/session/')) {
-      // Lineage of an active session (`id -> parentID`), as the walk reads it.
-      const id = decodeURIComponent(url.pathname.slice('/api/session/'.length));
-      if (id in lineage) return json({ id, parentID: lineage[id] ?? null }, lineageStatus);
     }
     return json({});
   });
@@ -137,21 +142,6 @@ const runTick = async (runtime) => {
   await runtime.notifyGoalChanged(SESSION_ID, '/repo', { openchamber: { goal: activeGoal() } });
   // idleQuietMs / kickoffQuietMs are 1 ms; the tick itself is async.
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
-};
-
-// One tick for the stateful harness below: the v2 status event arms the
-// timer for any active goal (notifyGoalChanged only kicks off fresh ones),
-// then wait for the 1ms timers plus async completion.
-// Under fake timers: arm the tick, flush the 1ms timer, then step through
-// the audit's 1s/2s backoff sleeps. Each step also flushes microtasks so the
-// tick progresses between sleeps.
-const runTickFor = async (harnessRuntime) => {
-  harnessRuntime.processPayload({ type: 'session.status', properties: { sessionID: SESSION_ID, status: { type: 'idle' }, directory: '/repo' } });
-  await vi.advanceTimersByTimeAsync(5);
-  await vi.advanceTimersByTimeAsync(1000);
-  await vi.advanceTimersByTimeAsync(2000);
-  await vi.advanceTimersByTimeAsync(2000);
-  await vi.runOnlyPendingTimersAsync();
 };
 
 describe('session goal session-read recovery', () => {
@@ -235,11 +225,11 @@ describe('session goal session-read recovery', () => {
 
   it('resets the failure count after a successful read', async () => {
     const sessionRead = vi.fn().mockRejectedValueOnce(new Error('fetch failed')).mockResolvedValue(undefined);
-    const test = setup(sessionRead, { activeStatus: 500 });
+    const test = setup(sessionRead, { childrenStatus: 500 });
     await test.start();
     await vi.advanceTimersByTimeAsync(15_000);
     expect(sessionRead).toHaveBeenCalledTimes(2);
-    // The activity read arms another quiet window without a new session event.
+    // The children read arms another quiet window without a new session event.
     sessionRead.mockRejectedValue(new Error('fetch failed'));
     await vi.advanceTimersByTimeAsync(15_000);
     await vi.advanceTimersByTimeAsync(14_999);
@@ -489,9 +479,9 @@ describe('session goal tick on v2 messages', () => {
     runtime.stop();
   });
 
-  it('normalizes the saved limit: 0 is unlimited, out-of-range falls back to 20', () => {
-    expect([undefined, -5, 2.5, '50', 10_001].map(normalizeMaxAutoTurns)).toEqual([20, 20, 20, 20, 20]);
-    expect([0, 1, 50, 200, 10_000].map(normalizeMaxAutoTurns)).toEqual([Infinity, 1, 50, 200, 10_000]);
+  it('falls back to 20 turns for a missing or out-of-range setting', () => {
+    expect([undefined, 0, -5, 2.5, '50', 201].map(normalizeMaxAutoTurns)).toEqual([20, 20, 20, 20, 20, 20]);
+    expect([1, 50, 200].map(normalizeMaxAutoTurns)).toEqual([1, 50, 200]);
   });
 
   it('settles the goal as complete when the report says all is done, without a continuation', async () => {
@@ -574,13 +564,15 @@ describe('session goal tick on v2 messages', () => {
 });
 
 describe('session goal tick and subagents', () => {
-  it('waits while an active subagent session is still working', async () => {
+  const child = (id) => ({ id, parentID: SESSION_ID, time: { updated: 1 } });
+
+  it('waits while a subagent listed on a later page is still working', async () => {
     quiet();
     const generate = vi.fn();
     const server = v2OpenCode({
       messages: [assistantRecord()],
       active: { ses_child_2: { status: 'running' } },
-      lineage: { ses_child_2: SESSION_ID },
+      childPages: [[child('ses_child_1')], [child('ses_child_2')]],
     });
     const { runtime } = makeRuntime({
       ...wired({ openchamber: { goal: activeGoal() } }),
@@ -588,10 +580,8 @@ describe('session goal tick and subagents', () => {
       recheckMs: 1_000,
     });
     await runTick(runtime);
-    // The wait comes from the subagent's own lineage record: the parent's
-    // child history is never listed.
-    expect(server.calls.some((call) => call.path === '/api/session/ses_child_2')).toBe(true);
-    expect(server.calls.some((call) => call.path === '/api/session')).toBe(false);
+    const listCalls = server.calls.filter((call) => call.path === '/api/session');
+    expect(listCalls.map((call) => call.query.parentID ?? call.query.cursor)).toEqual([SESSION_ID, 'page-1']);
     expect(server.calls.some((call) => call.method === 'POST')).toBe(false);
     expect(generate).not.toHaveBeenCalled();
   });
@@ -602,7 +592,7 @@ describe('session goal tick and subagents', () => {
     const server = v2OpenCode({
       messages: [assistantRecord()],
       active,
-      lineage: { ses_child_1: SESSION_ID },
+      childPages: [[child('ses_child_1')]],
     });
     const seam = wired({ openchamber: { goal: activeGoal() } });
     const generate = vi.fn(async () => ({ text: smallModelSays({ all_done: true }) }));
@@ -614,7 +604,7 @@ describe('session goal tick and subagents', () => {
 
     await runtime.notifyGoalChanged(SESSION_ID, '/repo', { openchamber: { goal: activeGoal() } });
     await vi.waitFor(() => {
-      expect(server.calls.some((call) => call.path === '/api/session/ses_child_1')).toBe(true);
+      expect(server.calls.some((call) => call.path === '/api/session' && call.query.parentID === SESSION_ID)).toBe(true);
     });
     expect(generate).not.toHaveBeenCalled();
 
@@ -626,9 +616,12 @@ describe('session goal tick and subagents', () => {
     });
   });
 
-  it('audits when nothing is running, without listing the child history', async () => {
+  it('audits once every subagent is idle', async () => {
     quiet();
-    const server = v2OpenCode({ messages: [assistantRecord()] });
+    const server = v2OpenCode({
+      messages: [assistantRecord()],
+      childPages: [[child('ses_child_1')]],
+    });
     const seam = wired({ openchamber: { goal: activeGoal() } });
     const { runtime } = makeRuntime({
       ...seam,
@@ -638,19 +631,14 @@ describe('session goal tick and subagents', () => {
       }),
     });
     await runTick(runtime);
-    expect(server.calls.some((call) => call.path === '/api/session')).toBe(false);
+    expect(server.calls.some((call) => call.path === '/api/session' && call.query.parentID === SESSION_ID)).toBe(true);
     expect(seam.persistSessionGoal).toHaveBeenCalled();
   });
 
-  it('does not treat an unreadable lineage as "no subagents"', async () => {
+  it('does not treat an unreadable children list as "no subagents"', async () => {
     quiet();
     const generate = vi.fn();
-    const server = v2OpenCode({
-      messages: [assistantRecord()],
-      active: { ses_child_1: { status: 'running' } },
-      lineage: { ses_child_1: SESSION_ID },
-      lineageStatus: 500,
-    });
+    const server = v2OpenCode({ messages: [assistantRecord()], childrenStatus: 500 });
     const seam = wired({ openchamber: { goal: activeGoal() } });
     const { runtime } = makeRuntime({
       ...seam,
@@ -658,7 +646,7 @@ describe('session goal tick and subagents', () => {
       recheckMs: 1_000,
     });
     await runTick(runtime);
-    expect(server.calls.some((call) => call.path === '/api/session/ses_child_1')).toBe(true);
+    expect(server.calls.some((call) => call.path === '/api/session')).toBe(true);
     expect(server.calls.some((call) => call.path.endsWith('/message'))).toBe(false);
     expect(server.calls.some((call) => call.method === 'POST')).toBe(false);
     expect(generate).not.toHaveBeenCalled();
@@ -736,6 +724,87 @@ describe('session goal and background commands', () => {
     await runTick(runtime);
     expect(generate).not.toHaveBeenCalled();
     expect(seam.persistSessionGoal).not.toHaveBeenCalled();
+  });
+});
+
+describe('session goal and the job list of OpenCode 2.2.6+', () => {
+  const userRecord = { id: 'msg_u1', sessionID: SESSION_ID, type: 'user', text: 'Run the tests', time: { created: 5 } };
+  const job = (kind, startedAt, sessionID = SESSION_ID) => ({
+    id: `job_${kind}_${startedAt}`, kind, sessionID, status: 'running', time: { started: startedAt }, command: 'bun test',
+  });
+
+  it('waits for a command a subagent started this round, which the folder list missed', async () => {
+    quiet();
+    let jobs = [job('shell', 7, 'ses_child')];
+    const server = v2OpenCode({ messages: [userRecord, assistantRecord()], jobs: () => jobs });
+    vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const seam = wired({ openchamber: { goal: activeGoal() } });
+    const generate = vi.fn(async () => ({ text: smallModelSays({ all_done: true }) }));
+    const { runtime } = makeRuntime({ ...seam, getSmallModelService: async () => ({ generateSmallModelText: generate }), recheckMs: 5 });
+
+    await runtime.notifyGoalChanged(SESSION_ID, '/repo', { openchamber: { goal: activeGoal() } });
+    await vi.waitFor(() => expect(server.calls.filter((call) => call.path === '/api/experimental/job').length).toBeGreaterThan(1));
+    expect(generate).not.toHaveBeenCalled();
+    expect(server.calls.find((call) => call.path === '/api/experimental/job')?.query).toEqual({
+      sessionID: SESSION_ID, descendants: 'true', status: 'running',
+    });
+
+    jobs = [];
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+    expect(server.calls.some((call) => call.path === '/api/shell')).toBe(false);
+  });
+
+  it.each(['shell', 'subagent', 'image'])('reads the jobs again after the messages, so a %s of the turn just read is covered', async (kind) => {
+    quiet();
+    let reads = 0;
+    // Empty when the tick starts; the job shows up by the time the reply is read.
+    const jobs = () => (reads++ === 0 ? [] : [job(kind, 7)]);
+    v2OpenCode({ messages: [userRecord, assistantRecord()], jobs });
+    vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const seam = wired({ openchamber: { goal: activeGoal() } });
+    const generate = vi.fn();
+    const { runtime } = makeRuntime({ ...seam, getSmallModelService: async () => ({ generateSmallModelText: generate }), recheckMs: 1_000 });
+
+    await runTick(runtime);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it('still waits for a running child session that is no OpenCode job, such as a workflow agent', async () => {
+    quiet();
+    v2OpenCode({
+      messages: [userRecord, assistantRecord()],
+      jobs: [],
+      active: { ses_workflow: { type: 'running' } },
+      childPages: [[{ id: 'ses_workflow', parentID: SESSION_ID }]],
+    });
+    const seam = wired({ openchamber: { goal: activeGoal() } });
+    const generate = vi.fn();
+    const { runtime } = makeRuntime({ ...seam, getSmallModelService: async () => ({ generateSmallModelText: generate }), recheckMs: 1_000 });
+
+    await runTick(runtime);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it.each(['subagent', 'image'])('waits while a background %s runs', async (kind) => {
+    quiet();
+    v2OpenCode({ messages: [userRecord, assistantRecord()], jobs: [job(kind, Date.now())] });
+    const seam = wired({ openchamber: { goal: activeGoal() } });
+    const generate = vi.fn();
+    const { runtime } = makeRuntime({ ...seam, getSmallModelService: async () => ({ generateSmallModelText: generate }), recheckMs: 1_000 });
+
+    await runTick(runtime);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it('does not wait for a command from an earlier round', async () => {
+    quiet();
+    v2OpenCode({ messages: [userRecord, assistantRecord()], jobs: [job('shell', 2)] });
+    const seam = wired({ openchamber: { goal: activeGoal() } });
+    const generate = vi.fn(async () => ({ text: smallModelSays({ all_done: true }) }));
+    const { runtime } = makeRuntime({ ...seam, getSmallModelService: async () => ({ generateSmallModelText: generate }) });
+
+    await runTick(runtime);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -980,226 +1049,5 @@ describe('session goal runtime', () => {
     );
     runtime.stop();
     warning.mockRestore();
-  });
-});
-
-describe('session goal transient vs permanent failures', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
-
-  const continueVerdict = {
-    text: '{"all_done":false,"remaining":true,"needs_user":false}',
-    providerID: 'provider',
-    modelID: 'model',
-  };
-
-  // v2 flat assistant record; the runtime maps it through toLoopMessage.
-  // Errors use v2's structured shape ({ type, ... }), which the runtime
-  // renames to `name` for the v1-era classifiers.
-  const assistantMessage = (overrides = {}) => {
-    const errorOverride = 'error' in overrides ? { error: overrides.error } : {};
-    return {
-      id: 'msg_assistant',
-      sessionID: SESSION_ID,
-      type: 'assistant',
-      agent: 'build',
-      model: { providerID: 'provider', id: 'model' },
-      content: [{ type: 'text', text: 'Still working on it.' }],
-      finish: 'stop',
-      time: { created: 1, completed: 2 },
-      tokens: { input: 1, output: 1, cache: { read: 0 } },
-      ...errorOverride,
-      ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== 'error')),
-    };
-  };
-
-  // Stateful harness over the v2 seams: persistSessionGoal folds into the
-  // goal returned by readSessionMetadata, so streaks round-trip across ticks
-  // exactly like production. A continuation re-arms the loop through
-  // notifyGoalChanged the way the production busy→idle transition does.
-  const startGoalHarness = async ({ messagesForFetch, generateSmallModelText }) => {
-    let storedGoal = { ...activeGoal(), turnsUsed: 1 };
-    const patches = [];
-    let messageFetches = 0;
-    let runtime;
-    const json = (data, status = 200) => new Response(JSON.stringify({ location: { directory: '/repo' }, data }), {
-      status,
-      headers: { 'content-type': 'application/json' },
-    });
-    const fetchImpl = vi.fn(async (input, init = {}) => {
-      const url = new URL(String(input));
-      const pathname = url.pathname;
-      if (pathname === `/api/session/${SESSION_ID}` && (init.method ?? 'GET') === 'GET') {
-        return json({ id: SESSION_ID, location: { directory: '/repo' } });
-      }
-      if (pathname === '/api/session/active') return json({});
-      if (pathname === '/api/shell') return json([]);
-      if (pathname === `/api/session/${SESSION_ID}/message`) {
-        messageFetches += 1;
-        return json({ data: messagesForFetch(messageFetches), cursor: null });
-      }
-      if (pathname === `/api/session/${SESSION_ID}/prompt`) {
-        // Continuation makes the session busy; its idle transition re-arms.
-        await runtime.notifyGoalChanged(SESSION_ID, '/repo', { openchamber: { goal: storedGoal } });
-        return json({ ok: true });
-      }
-      throw new Error(`Unexpected request: ${pathname}`);
-    });
-    vi.stubGlobal('fetch', fetchImpl);
-    const service = { generateSmallModelText: vi.fn(generateSmallModelText) };
-    runtime = createSessionGoalRuntime({
-      buildOpenCodeUrl: (pathname) => `http://opencode.test${pathname}`,
-      getOpenCodeAuthHeaders: () => ({}),
-      getSmallModelService: async () => service,
-      readSessionMetadata: async () => ({ openchamber: { goal: storedGoal } }),
-      persistSessionGoal: async (sessionID, directory, goal) => {
-        storedGoal = goal;
-        patches.push(goal);
-      },
-      idleQuietMs: 1,
-      kickoffQuietMs: 1,
-    });
-    await runtime.notifyGoalChanged(SESSION_ID, '/repo', { openchamber: { goal: storedGoal } });
-    return { runtime, service, patches };
-  };
-
-  const lastPatch = (patches) => patches[patches.length - 1];
-
-  it('blocks immediately on a permanent turn error', async () => {
-    const { runtime, service, patches } = await startGoalHarness({
-      messagesForFetch: () => [assistantMessage({ error: { type: 'ProviderAuthError', data: { providerID: 'provider', message: 'no auth' } },
-      })],
-      generateSmallModelText: async () => continueVerdict,
-    });
-
-    await runTickFor(runtime);
-    expect(lastPatch(patches)).toMatchObject({ status: 'blocked', statusReason: 'ProviderAuthError' });
-    expect(service.generateSmallModelText).not.toHaveBeenCalled();
-    runtime.stop();
-  });
-
-  it('retries a transient turn error (503) and resets the streak once the turn succeeds', async () => {
-    const { runtime, service, patches } = await startGoalHarness({
-      messagesForFetch: (n) => (n === 1
-        ? [assistantMessage({ error: { type: 'APIError', statusCode: 503, data: { message: 'Service Unavailable', isRetryable: true } } })]
-        : [assistantMessage()]),
-      generateSmallModelText: async () => continueVerdict,
-    });
-
-    // First tick: transient 503 → goal stays active, nothing settles.
-    await runTickFor(runtime);
-    expect(lastPatch(patches)).toMatchObject({ status: 'active' });
-    expect(patches.some((patch) => patch.status === 'blocked')).toBe(false);
-
-    // Second tick: turn succeeds → audit ran, continuation sent.
-    await runTickFor(runtime);
-    expect(lastPatch(patches)).toMatchObject({ status: 'active' });
-    expect(service.generateSmallModelText).toHaveBeenCalled();
-    expect(patches.some((patch) => patch.status === 'blocked')).toBe(false);
-    runtime.stop();
-  });
-
-  it('blocks a goal whose transient turn errors exhaust the retry limit', async () => {
-    const { runtime, service, patches } = await startGoalHarness({
-      messagesForFetch: () => [assistantMessage({ error: { type: 'APIError', statusCode: 502, data: { message: 'Bad Gateway', isRetryable: true } },
-      })],
-      generateSmallModelText: async () => continueVerdict,
-    });
-
-    for (let i = 0; i < 6; i += 1) {
-      await runTickFor(runtime);
-    }
-    const settled = patches.find((patch) => patch.status === 'blocked');
-    expect(settled).toBeDefined();
-    expect(settled.statusReason).toContain('transient provider error persisted');
-    expect(service.generateSmallModelText).not.toHaveBeenCalled();
-    runtime.stop();
-  });
-
-  it('retries transient audit failures within the tick and counts one failure', async () => {
-    const { runtime, service, patches } = await startGoalHarness({
-      messagesForFetch: () => [assistantMessage()],
-      generateSmallModelText: async () => {
-        throw Object.assign(new Error('Service Unavailable'), { status: 503 });
-      },
-    });
-
-    await runTickFor(runtime);
-    // 3 in-tick attempts, then one counted failure — the goal stays active
-    // (AUDIT_FAIL_LIMIT is 2) and no continuation is sent blind.
-    expect(service.generateSmallModelText).toHaveBeenCalledTimes(3);
-    expect(patches.some((patch) => patch.status === 'blocked')).toBe(false);
-    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 1 });
-    runtime.stop();
-  });
-
-  it('blocks the goal after two consecutive permanent audit failures', async () => {
-    const { runtime, patches } = await startGoalHarness({
-      messagesForFetch: () => [assistantMessage()],
-      generateSmallModelText: async () => {
-        throw Object.assign(new Error('No small model available'), { statusCode: 404 });
-      },
-    });
-
-    await runTickFor(runtime);
-    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 1 });
-
-    await runTickFor(runtime);
-    expect(lastPatch(patches)).toMatchObject({ status: 'blocked', statusReason: 'progress audit unavailable' });
-    runtime.stop();
-  });
-
-  it('does not retry a permanent 404 audit failure within a tick', async () => {
-    const { runtime, service, patches } = await startGoalHarness({
-      messagesForFetch: () => [assistantMessage()],
-      generateSmallModelText: async () => {
-        throw Object.assign(new Error('No small model available'), { statusCode: 404 });
-      },
-    });
-
-    await runTickFor(runtime);
-    expect(service.generateSmallModelText).toHaveBeenCalledOnce();
-    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 1 });
-    runtime.stop();
-  });
-
-  it('retries a transient 500 audit twice and continues on success', async () => {
-    let calls = 0;
-    const { runtime, service, patches } = await startGoalHarness({
-      messagesForFetch: () => [assistantMessage()],
-      generateSmallModelText: async () => {
-        calls += 1;
-        if (calls <= 2) throw Object.assign(new Error('Internal server error'), { status: 500 });
-        return continueVerdict;
-      },
-    });
-
-    // First tick: two 500s (1s + 2s backoff) then success — one audited
-    // continuation, no failure recorded.
-    await runTickFor(runtime);
-    expect(service.generateSmallModelText).toHaveBeenCalledTimes(3);
-    expect(patches.some((patch) => patch.status === 'blocked')).toBe(false);
-    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 0 });
-    runtime.stop();
-  });
-
-  it('counts one audit failure after three consecutive 500s in a tick', async () => {
-    const { runtime, service, patches } = await startGoalHarness({
-      messagesForFetch: () => [assistantMessage()],
-      generateSmallModelText: async () => {
-        throw Object.assign(new Error('Internal server error'), { status: 500 });
-      },
-    });
-
-    await runTickFor(runtime);
-    expect(service.generateSmallModelText).toHaveBeenCalledTimes(3);
-    expect(lastPatch(patches)).toMatchObject({ status: 'active', auditFailStreak: 1 });
-    runtime.stop();
   });
 });

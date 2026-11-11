@@ -15,6 +15,8 @@ import { htmlRenderI18n } from './html-render.i18n';
 import { documentToolbarI18n } from './document-toolbar.i18n';
 import { uiBlocksI18n } from './ui-blocks.i18n';
 import { updateDialogCanaryI18n } from './update-dialog-canary.i18n';
+import { aboutReleaseNotesI18n } from './about-release-notes.i18n';
+import { updateCheckErrorsI18n } from './update-check-errors.i18n';
 import { secretRequestI18n } from './secret-request.i18n';
 import { sessionNoticesI18n } from './session-notices.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
@@ -24,6 +26,11 @@ import { compactionSettingsI18n } from './compaction-settings.i18n';
 import { heapSnapshotI18n } from './heap-snapshot.i18n';
 import { consoleBudgetsI18n } from './console-budgets.i18n';
 import { imageToolI18n } from './image-tool.i18n';
+import { memoryDreamingI18n } from './memory-dreaming.i18n';
+import { usageToolI18n } from './usage-tool.i18n';
+import { openchamberToolsLayoutI18n } from './openchamber-tools-layout.i18n';
+import { openchamberToolOutputI18n } from './openchamber-tool-output.i18n';
+import { opencodeToolOutputI18n } from './opencode-tool-output.i18n';
 import { agentStatusI18n } from './agent-status.i18n';
 import { selectionApprovalI18n } from './selection-approval.i18n';
 import { snippetsI18n } from './snippets.i18n';
@@ -190,6 +197,8 @@ export const dict = {
   ...documentToolbarI18n.en,
   ...uiBlocksI18n.en,
   ...updateDialogCanaryI18n.en,
+  ...aboutReleaseNotesI18n.en,
+  ...updateCheckErrorsI18n.en,
   ...secretRequestI18n.en,
   ...sessionNoticesI18n.en,
   ...usageStatsI18n.en,
@@ -199,6 +208,11 @@ export const dict = {
   ...heapSnapshotI18n.en,
   ...consoleBudgetsI18n.en,
   ...imageToolI18n.en,
+  ...memoryDreamingI18n.en,
+  ...usageToolI18n.en,
+  ...openchamberToolsLayoutI18n.en,
+  ...openchamberToolOutputI18n.en,
+  ...opencodeToolOutputI18n.en,
   ...agentStatusI18n.en,
   ...snippetsI18n.en,
   ...sidebarWorkI18n.en,
@@ -755,7 +769,6 @@ export const dict = {
   'sessions.sidebar.project.actions.newDraftSession': 'New draft session',
   'sessions.sidebar.session.menu.rename': 'Rename',
   'sessions.sidebar.session.menu.copyId': 'Copy session ID',
-  'sessions.sidebar.session.menu.openInMiniChat': 'Open in Mini Chat',
   'sessions.sidebar.session.copyId.success': 'Session ID copied',
   'sessions.sidebar.session.copyId.error': 'Failed to copy session ID',
   'header.sessionActions.openAria': 'Open session actions',
@@ -781,13 +794,14 @@ export const dict = {
   'chat.backgroundShells.stopAll': 'Stop all',
   'chat.backgroundShells.stopAria': 'Stop {command}',
   'chat.backgroundShells.elapsed': 'Running for {duration}',
+  'chat.backgroundWork.aria': 'Background work',
+  'chat.backgroundWork.count': 'In the background: {count}',
+  'chat.backgroundImages.generating': 'Generating an image',
   'sessions.sidebar.session.menu.share': 'Share',
   'sessions.sidebar.session.menu.copied': 'Copied',
   'sessions.sidebar.session.menu.copyLink': 'Copy link',
   'sessions.sidebar.session.menu.unshare': 'Unshare',
   'sessions.sidebar.session.menu.exportMarkdown': 'Export Markdown',
-  'sessions.sidebar.session.menu.moveToWorktree': 'Move to new worktree',
-  'sessions.sidebar.session.menu.moveToWorktreeTargets': 'Move to worktree',
   'sessions.sidebar.session.menu.newWorktree': 'New worktree...',
   'sessions.sidebar.session.moveToWorktree.success': 'Session moved to a new worktree',
   'sessions.sidebar.session.moveToWorktree.failed': 'Failed to move session to a new worktree',
@@ -797,7 +811,6 @@ export const dict = {
   'sessions.sidebar.session.moveToWorktree.current': 'Current worktree',
   'sessions.sidebar.session.moveToWorktree.existingSuccess': 'Session moved to worktree',
   'sessions.sidebar.session.moveToWorktree.existingFailed': 'Failed to move session to worktree',
-  'sessions.sidebar.session.moveToWorktree.tooltip': 'Creates a new worktree from the current branch and moves this session and its sub-sessions there. Uncommitted changes stay in the source worktree.',
   'sessions.sidebar.session.moveToWorktree.tooltipBusy': 'Available when the session is idle. Stop or wait for the current activity to finish.',
   'sessions.sidebar.session.moveToWorktree.tooltipMoving': 'This session is already being moved to a new worktree.',
   'sessions.sidebar.session.menu.openInSidePanel': 'Open in Side Panel',
@@ -820,6 +833,7 @@ export const dict = {
   'sessions.sidebar.session.status.unread': 'Unread updates',
   'sessions.sidebar.session.status.backgroundSubagent': 'Subagent running in the background',
   'sessions.sidebar.session.status.backgroundCommand': 'Command running in the background',
+  'sessions.sidebar.session.status.backgroundImage': 'Image generating in the background',
   'sessions.sidebar.session.status.waitingOnPullRequest': 'Waiting on checks or a review',
   'sessions.sidebar.session.status.pinned': 'Pinned session',
   'sessions.sidebar.session.status.movingToWorktree': 'Moving session to a new worktree',
@@ -1258,6 +1272,9 @@ export const dict = {
   'magicPrompts.toast.loadFailed': 'Could not load magic prompts. Nothing was sent.',
   'gitView.empty.notGitRepository': 'This directory is not a Git repository',
   'gitView.empty.notGitRepositoryDescription': 'Initialize Git in this directory or open a repository.',
+  'gitView.empty.repositoryUnreadable': 'Git couldn\'t read this folder',
+  'gitView.empty.repositoryUnreadableDescription': 'Here is what Git said. Fix it, then try again.',
+  'gitView.empty.repositoryUnreadableRetry': 'Try again',
   'gitView.empty.selectSessionOrDirectory': 'Select a session or directory to view Git status',
   'gitView.empty.worktreeFeaturesUnavailable': 'Worktree features are unavailable in this workspace mode.',
   'gitView.empty.worktreeSetupDescription': 'Finishing worktree setup and preparing repository state.',
@@ -1849,6 +1866,7 @@ export const dict = {
   'contextSidebar.empty.openSession': 'Open a session to inspect context.',
   'contextSidebar.section.context': 'Context',
   'contextSidebar.section.lastAssistantMessage': 'Last Assistant Message',
+  'contextSidebar.section.sessionTotals': 'Session Totals',
   'contextSidebar.section.rawMessages': 'Raw Messages',
   'contextSidebar.context.percentUsed': '{percent}% used',
   'contextSidebar.breakdown.user': 'User',
@@ -2048,8 +2066,6 @@ export const dict = {
   'rightSidebar.contextNotesTodo.todo.addAria': 'Add todo',
   'rightSidebar.contextNotesTodo.todo.empty': 'No todos yet. Add a small checklist for this project.',
   'rightSidebar.contextNotesTodo.todo.actions.markComplete': 'Mark "{text}" complete',
-  'rightSidebar.contextNotesTodo.todo.actions.collapse': 'Collapse todo "{text}"',
-  'rightSidebar.contextNotesTodo.todo.actions.expand': 'Expand todo "{text}"',
   'rightSidebar.contextNotesTodo.todo.actions.send': 'Send "{text}"',
   'rightSidebar.contextNotesTodo.todo.actions.reorder': 'Reorder "{text}"',
   'rightSidebar.contextNotesTodo.todo.sendMenu.currentSession': 'Send to current session',
@@ -2247,6 +2263,7 @@ export const dict = {
   'directoryExplorerDialog.browse.retry': 'Try again',
   'directoryExplorerDialog.browse.parentDirectory': 'Parent directory',
   'directoryExplorerDialog.browse.addedBadge': 'Added',
+  'directoryExplorerDialog.browse.linkTarget': 'Link to {path}',
   'directoryExplorerDialog.browse.quickAdd': 'Add',
   'directoryExplorerDialog.browse.selectForAdd': 'Select for add',
   'directoryExplorerDialog.footer.navigate': 'Navigate',
@@ -2403,6 +2420,7 @@ export const dict = {
   'session.githubIntegration.validation.failed': 'Validation failed',
   'chat.fileAttachment.toast.attachFailed': 'Failed to attach file',
   'chat.fileAttachment.toast.tooLarge': '{name} is too large to attach (over {size}). Mention it with @ if it is in the project.',
+  'chat.fileAttachment.toast.heicConversionFailed': '{name} could not be converted from HEIC to JPEG, so it was not attached. Save the photo as JPEG and attach it again.',
   'chat.fileAttachment.toast.overSendLimit': '{name} is too large to attach (over {size}).',
   'chat.fileAttachment.toast.someFilesSkipped': 'Some files were skipped:\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': 'Failed to pick files in VS Code',
@@ -2566,6 +2584,8 @@ export const dict = {
   'sessions.sidebar.group.empty.loadingSessions': 'Loading sessions…',
   'sessions.sidebar.group.empty.loadFailed': 'Could not refresh sessions.',
   'sessions.sidebar.group.empty.initializationFailed': 'Could not initialize workspace.',
+  'sessions.sidebar.group.empty.trustPaused': 'Agents are paused until you trust this folder.',
+  'sessions.sidebar.group.empty.reviewTrust': 'Review and trust',
   'sessions.search.submitHint': 'Press Enter to search',
   'sessions.sidebar.group.empty.retry': 'Try again',
   'sessions.sidebar.group.empty.permissionDenied': 'Folder access is required.',
@@ -3445,6 +3465,7 @@ export const dict = {
   'updateDialog.status.autoReloadHint': 'The page will reload automatically when the update is complete.',
   'updateDialog.fallback.updateViaTerminal': 'Or update via terminal:',
   'updateDialog.desktopHostInstall': 'OpenChamber {version} is available. Update it on the computer it runs on.',
+  'updateDialog.openCodeTooOld': 'OpenChamber {version} needs OpenCode {required}. This server has {current}. Update OpenCode first.',
   'updateDialog.actions.copyCommand': 'Copy command',
   'updateDialog.actions.copied': 'Copied!',
   'updateDialog.status.downloadingPayload': 'Downloading update payload...',
@@ -3706,6 +3727,9 @@ export const dict = {
   'chat.workStatus.breakdown.skillCountPlural': '{count} skills',
   'chat.workStatus.breakdown.mcpCountSingle': '{count} MCP',
   'chat.workStatus.breakdown.mcpCountPlural': '{count} MCP',
+  'chat.workStatus.breakdown.planCountSingle': '{count} plan',
+  'chat.workStatus.breakdown.planCountPlural': '{count} plans',
+  'chat.workStatus.linkedPlans.open': 'Open plan {title}',
   'chat.workStatus.sections.open': 'Choose sections',
   'chat.workStatus.sections.dialogTitle': 'Panel sections',
   'chat.workStatus.sections.reorder': 'Drag {label} to reorder',
@@ -3970,6 +3994,8 @@ export const dict = {
   'sessions.moveSession.failed': 'Could not move the session',
   'chat.folderMissing.text': 'Folder {name} no longer exists',
   'chat.folderMissing.action': 'Move session',
+  'chat.trustPaused.text': 'Agents can\'t work in {name} until you trust its plugins and commands.',
+  'chat.trustPaused.action': 'Review and trust',
   'chat.worktreeSetup.running': 'Setting up the worktree: running the project\'s setup commands…',
   'chat.draft.creatingSession': 'Creating session…',
   'desktopHostSwitcher.startup.fellBackToLocal': 'Its connection didn\'t open, so OpenChamber started on Local. Connect it from the instance switcher once it\'s reachable.',

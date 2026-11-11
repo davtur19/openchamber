@@ -8,6 +8,7 @@ import { SEMANTIC_TYPOGRAPHY, getTypographyVariable, type SemanticTypographyKey 
 import type { ShortcutCombo } from '@/lib/shortcuts';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { CustomProviderIcon } from '@/lib/customProviderIcons';
+import type { CustomProviderLogo } from '@/lib/customProviderLogos';
 import { DEFAULT_MONO_FONT, DEFAULT_UI_FONT, DEFAULT_UI_FONT_WEIGHT, type MonoFontOption, type UiFontOption, type UiFontWeight } from '@/lib/fontOptions';
 import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { TerminalShell } from '@/lib/api/types';
@@ -1026,7 +1027,7 @@ interface UIStore {
   sessionGoalDefaultBudget: number;
   /** Max characters accepted for a goal objective (inline or file-backed). */
   sessionGoalObjectiveCharLimit: number;
-  /** Max auto-continuation turns before a goal settles as blocked. 0 = unlimited. */
+  /** Max auto-continuation turns before a goal settles as blocked. */
   sessionGoalMaxAutoTurns: number;
   collapsibleThinkingBlocks: boolean;
   /** A collapsible reasoning block opens while its model thinks. Off: it stays folded to its header. */
@@ -1091,6 +1092,8 @@ interface UIStore {
   providerOrder: string[];
   collapsedModelProviders: string[];
   customProviderIcons: Record<string, CustomProviderIcon>;
+  /** Uploaded logos by provider ID; the server writes them with the image. */
+  customProviderLogos: Record<string, CustomProviderLogo>;
   recentModels: Array<{ providerID: string; modelID: string }>;
   /** `provider/model` last picked in a chat composer; a new session starts on it when nothing is configured. */
   lastSelectedModel: string | undefined;
@@ -1163,14 +1166,18 @@ interface UIStore {
   agentMemoryToolEnabled: boolean;
   agentKnowledgeToolEnabled: boolean;
   agentNotifyToolEnabled: boolean;
+  agentUsageToolEnabled: boolean;
   agentImageToolEnabled: boolean;
   /** `provider/model` the image tool draws with; empty until the user picks one. */
   agentImageModel: string;
+  /** The agent memory tidies itself in the background (`agent-memory/dreaming.js`); off until turned on. */
+  agentMemoryDreamingEnabled: boolean;
+  /** `provider/model` dreaming runs on; empty runs it on the default model. */
+  agentMemoryDreamingModel: string;
+  agentMemoryDreamingVariant: string;
   agentRenderToolEnabled: boolean;
   agentSecretToolEnabled: boolean;
   agentWorkflowToolEnabled: boolean;
-  /** Whether OpenChamber's agent tools sit behind OpenCode's Code Mode instead of being direct tools. */
-  agentToolsCodeMode: boolean;
   /** The isolated-spaces switch as saved; the server applies it at its next start. */
   isolatedSpacesEnabled: boolean;
   /** The permission mode the server writes onto each new top-level session. */
@@ -1415,6 +1422,7 @@ interface UIStore {
   ) => void;
   setProviderOrder: (orderedProviderIDs: string[]) => void;
   setCustomProviderIcon: (providerID: string, icon: CustomProviderIcon | null) => void;
+  setCustomProviderLogo: (providerID: string, logo: CustomProviderLogo | null) => void;
   toggleHiddenModel: (providerID: string, modelID: string) => void;
   isHiddenModel: (providerID: string, modelID: string) => boolean;
   hideAllModels: (providerID: string, modelIDs: string[]) => void;
@@ -1473,12 +1481,15 @@ interface UIStore {
   setAgentMemoryToolEnabled: (value: boolean) => void;
   setAgentKnowledgeToolEnabled: (value: boolean) => void;
   setAgentNotifyToolEnabled: (value: boolean) => void;
+  setAgentUsageToolEnabled: (value: boolean) => void;
   setAgentImageToolEnabled: (value: boolean) => void;
   setAgentImageModel: (value: string) => void;
+  setAgentMemoryDreamingEnabled: (value: boolean) => void;
+  setAgentMemoryDreamingModel: (value: string) => void;
+  setAgentMemoryDreamingVariant: (value: string) => void;
   setAgentRenderToolEnabled: (value: boolean) => void;
   setAgentSecretToolEnabled: (value: boolean) => void;
   setAgentWorkflowToolEnabled: (value: boolean) => void;
-  setAgentToolsCodeMode: (value: boolean) => void;
   setIsolatedSpacesEnabled: (value: boolean) => void;
   setPermissionDefaultMode: (value: PermissionMode) => void;
   setAgentMemoryFeatureAvailable: (value: boolean) => void;
@@ -1544,6 +1555,7 @@ const openFileTab = (state: UIStore, directory: string, filePath: string, previe
 
 /** What the selection menu's thumb-up says when the user set no text of their own. */
 export const DEFAULT_SELECTION_APPROVAL_TEXT = 'Sounds good';
+export const DEFAULT_EDITOR_FONT_SIZE = 12;
 
 export const useUIStore = create<UIStore>()(
   devtools(
@@ -1661,7 +1673,7 @@ export const useUIStore = create<UIStore>()(
         terminalShell: 'auto',
         terminalLoginShells: [],
         terminalCloseOnExit: true,
-        editorFontSize: 13,
+        editorFontSize: DEFAULT_EDITOR_FONT_SIZE,
         uiFont: DEFAULT_UI_FONT,
         monoFont: DEFAULT_MONO_FONT,
         customUiFont: '',
@@ -1676,6 +1688,7 @@ export const useUIStore = create<UIStore>()(
         providerOrder: [],
         collapsedModelProviders: [],
         customProviderIcons: {},
+        customProviderLogos: {},
         recentModels: [],
         lastSelectedModel: undefined,
         recentAgents: [],
@@ -1731,12 +1744,15 @@ export const useUIStore = create<UIStore>()(
         agentMemoryToolEnabled: false,
         agentKnowledgeToolEnabled: true,
         agentNotifyToolEnabled: false,
+        agentUsageToolEnabled: false,
         agentImageToolEnabled: false,
         agentImageModel: '',
+        agentMemoryDreamingEnabled: false,
+        agentMemoryDreamingModel: '',
+        agentMemoryDreamingVariant: '',
         agentRenderToolEnabled: true,
         agentSecretToolEnabled: true,
         agentWorkflowToolEnabled: false,
-        agentToolsCodeMode: false,
         isolatedSpacesEnabled: false,
         permissionDefaultMode: 'ask',
         agentMemoryFeatureAvailable: false,
@@ -3096,6 +3112,17 @@ export const useUIStore = create<UIStore>()(
           });
         },
 
+        setCustomProviderLogo: (providerID, logo) => {
+          const normalizedProviderID = providerID.trim();
+          if (!normalizedProviderID) return;
+          set((state) => {
+            const next = { ...state.customProviderLogos };
+            if (logo) next[normalizedProviderID] = logo;
+            else delete next[normalizedProviderID];
+            return { customProviderLogos: next };
+          });
+        },
+
         toggleHiddenModel: (providerID, modelID) => {
           set((state) => {
             const exists = state.hiddenModels.some(
@@ -3410,11 +3437,23 @@ export const useUIStore = create<UIStore>()(
         setAgentNotifyToolEnabled: (value) => {
           set({ agentNotifyToolEnabled: value });
         },
+        setAgentUsageToolEnabled: (value) => {
+          set({ agentUsageToolEnabled: value });
+        },
         setAgentImageToolEnabled: (value) => {
           set({ agentImageToolEnabled: value });
         },
         setAgentImageModel: (value) => {
           set({ agentImageModel: value });
+        },
+        setAgentMemoryDreamingEnabled: (value) => {
+          set({ agentMemoryDreamingEnabled: value });
+        },
+        setAgentMemoryDreamingModel: (value) => {
+          set({ agentMemoryDreamingModel: value });
+        },
+        setAgentMemoryDreamingVariant: (value) => {
+          set({ agentMemoryDreamingVariant: value });
         },
         setAgentRenderToolEnabled: (value) => {
           set({ agentRenderToolEnabled: value });
@@ -3430,9 +3469,6 @@ export const useUIStore = create<UIStore>()(
             const workflowTabIds = panel.tabs.filter((tab) => tab.mode === 'workflows').map((tab) => tab.id);
             if (workflowTabIds.length > 0) get().closeContextPanelTabs(directory, workflowTabIds);
           }
-        },
-        setAgentToolsCodeMode: (value) => {
-          set({ agentToolsCodeMode: value });
         },
         setAgentMemoryFeatureAvailable: (value) => {
           set({ agentMemoryFeatureAvailable: value });
@@ -3590,7 +3626,7 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 27,
+        version: 28,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
@@ -3608,6 +3644,13 @@ export const useUIStore = create<UIStore>()(
           // the user arranged stays.
           if (version < 27 && Array.isArray(state.workStatusSectionOrder)) {
             state.workStatusSectionOrder = sanitizeWorkStatusSectionOrder(state.workStatusSectionOrder, false);
+          }
+
+          // v27 -> v28: the Editor font size default went from 13 to 12. The
+          // local copy holds 13 for everyone who never changed it; a 13 the
+          // user chose is restored from the synced settings after hydration.
+          if (version < 28 && state.editorFontSize === 13) {
+            state.editorFontSize = DEFAULT_EDITOR_FONT_SIZE;
           }
 
           // v20 -> v21: enable telemetry by default; preserve explicit choices.
@@ -3951,6 +3994,7 @@ export const useUIStore = create<UIStore>()(
           providerOrder: state.providerOrder,
           collapsedModelProviders: state.collapsedModelProviders,
           customProviderIcons: state.customProviderIcons,
+          customProviderLogos: state.customProviderLogos,
           recentModels: state.recentModels,
           lastSelectedModel: state.lastSelectedModel,
           recentAgents: state.recentAgents,
@@ -3992,12 +4036,15 @@ export const useUIStore = create<UIStore>()(
           agentMemoryToolEnabled: state.agentMemoryToolEnabled,
           agentKnowledgeToolEnabled: state.agentKnowledgeToolEnabled,
           agentNotifyToolEnabled: state.agentNotifyToolEnabled,
+          agentUsageToolEnabled: state.agentUsageToolEnabled,
           agentImageToolEnabled: state.agentImageToolEnabled,
           agentImageModel: state.agentImageModel,
+          agentMemoryDreamingEnabled: state.agentMemoryDreamingEnabled,
+          agentMemoryDreamingModel: state.agentMemoryDreamingModel,
+          agentMemoryDreamingVariant: state.agentMemoryDreamingVariant,
           agentRenderToolEnabled: state.agentRenderToolEnabled,
           agentSecretToolEnabled: state.agentSecretToolEnabled,
           agentWorkflowToolEnabled: state.agentWorkflowToolEnabled,
-          agentToolsCodeMode: state.agentToolsCodeMode,
           isolatedSpacesEnabled: state.isolatedSpacesEnabled,
           permissionDefaultMode: state.permissionDefaultMode,
           agentMemoryViewedAt: state.agentMemoryViewedAt,

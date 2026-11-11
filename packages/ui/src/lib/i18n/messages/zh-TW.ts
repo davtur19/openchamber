@@ -16,6 +16,8 @@ import { htmlRenderI18n } from './html-render.i18n';
 import { documentToolbarI18n } from './document-toolbar.i18n';
 import { uiBlocksI18n } from './ui-blocks.i18n';
 import { updateDialogCanaryI18n } from './update-dialog-canary.i18n';
+import { aboutReleaseNotesI18n } from './about-release-notes.i18n';
+import { updateCheckErrorsI18n } from './update-check-errors.i18n';
 import { secretRequestI18n } from './secret-request.i18n';
 import { sessionNoticesI18n } from './session-notices.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
@@ -25,6 +27,11 @@ import { compactionSettingsI18n } from './compaction-settings.i18n';
 import { heapSnapshotI18n } from './heap-snapshot.i18n';
 import { consoleBudgetsI18n } from './console-budgets.i18n';
 import { imageToolI18n } from './image-tool.i18n';
+import { memoryDreamingI18n } from './memory-dreaming.i18n';
+import { usageToolI18n } from './usage-tool.i18n';
+import { openchamberToolsLayoutI18n } from './openchamber-tools-layout.i18n';
+import { openchamberToolOutputI18n } from './openchamber-tool-output.i18n';
+import { opencodeToolOutputI18n } from './opencode-tool-output.i18n';
 import { agentStatusI18n } from './agent-status.i18n';
 import { selectionApprovalI18n } from './selection-approval.i18n';
 import { snippetsI18n } from './snippets.i18n';
@@ -191,6 +198,8 @@ export const dict: Record<I18nKey, string> = {
   ...documentToolbarI18n['zh-TW'],
   ...uiBlocksI18n['zh-TW'],
   ...updateDialogCanaryI18n['zh-TW'],
+  ...aboutReleaseNotesI18n['zh-TW'],
+  ...updateCheckErrorsI18n['zh-TW'],
   ...secretRequestI18n['zh-TW'],
   ...sessionNoticesI18n['zh-TW'],
   ...usageStatsI18n['zh-TW'],
@@ -200,6 +209,11 @@ export const dict: Record<I18nKey, string> = {
   ...heapSnapshotI18n['zh-TW'],
   ...consoleBudgetsI18n['zh-TW'],
   ...imageToolI18n['zh-TW'],
+  ...memoryDreamingI18n['zh-TW'],
+  ...usageToolI18n['zh-TW'],
+  ...openchamberToolsLayoutI18n['zh-TW'],
+  ...openchamberToolOutputI18n['zh-TW'],
+  ...opencodeToolOutputI18n['zh-TW'],
   ...agentStatusI18n['zh-TW'],
   ...snippetsI18n['zh-TW'],
   ...sidebarWorkI18n['zh-TW'],
@@ -776,7 +790,6 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.project.actions.newDraftSession': '新增草稿會話',
   'sessions.sidebar.session.menu.rename': '重新命名',
   'sessions.sidebar.session.menu.copyId': '複製工作階段 ID',
-  'sessions.sidebar.session.menu.openInMiniChat': '在 Mini Chat 中開啟',
   'sessions.sidebar.session.copyId.success': '已複製工作階段 ID',
   'sessions.sidebar.session.copyId.error': '無法複製工作階段 ID',
   'header.sessionActions.openAria': '開啟工作階段操作',
@@ -802,13 +815,14 @@ export const dict: Record<I18nKey, string> = {
   'chat.backgroundShells.stopAll': '全部停止',
   'chat.backgroundShells.stopAria': '停止 {command}',
   'chat.backgroundShells.elapsed': '已執行 {duration}',
+  'chat.backgroundWork.aria': '背景工作',
+  'chat.backgroundWork.count': '背景：{count}',
+  'chat.backgroundImages.generating': '正在產生圖片',
   'sessions.sidebar.session.menu.share': '分享',
   'sessions.sidebar.session.menu.copied': '已複製',
   'sessions.sidebar.session.menu.copyLink': '複製連結',
   'sessions.sidebar.session.menu.unshare': '取消分享',
   'sessions.sidebar.session.menu.exportMarkdown': '匯出 Markdown',
-  'sessions.sidebar.session.menu.moveToWorktree': '移至新工作樹',
-  'sessions.sidebar.session.menu.moveToWorktreeTargets': '移至工作樹',
   'sessions.sidebar.session.menu.newWorktree': '新增工作樹...',
   'sessions.sidebar.session.moveToWorktree.success': '工作階段已移至新工作樹',
   'sessions.sidebar.session.moveToWorktree.failed': '無法將工作階段移至新工作樹',
@@ -818,7 +832,6 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.session.moveToWorktree.current': '目前的工作樹',
   'sessions.sidebar.session.moveToWorktree.existingSuccess': '工作階段已移至工作樹',
   'sessions.sidebar.session.moveToWorktree.existingFailed': '無法將工作階段移至工作樹',
-  'sessions.sidebar.session.moveToWorktree.tooltip': '從目前分支建立新工作樹，並將此工作階段及其子工作階段移至其中。未提交的變更會留在來源工作樹中。',
   'sessions.sidebar.session.moveToWorktree.tooltipBusy': '僅在工作階段閒置時可用。請停止目前活動或等待其完成。',
   'sessions.sidebar.session.moveToWorktree.tooltipMoving': '此工作階段已在移至新工作樹。',
   'sessions.sidebar.session.menu.openInSidePanel': '在側邊面板中開啟',
@@ -841,6 +854,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.session.status.unread': '有未讀更新',
   'sessions.sidebar.session.status.backgroundSubagent': '子代理程式正在背景執行',
   'sessions.sidebar.session.status.backgroundCommand': '指令正在背景執行',
+  'sessions.sidebar.session.status.backgroundImage': '圖片正在背景產生',
   'sessions.sidebar.session.status.waitingOnPullRequest': '正在等待檢查或審查',
   'sessions.sidebar.session.status.pinned': '已釘選會話',
   'sessions.sidebar.session.status.movingToWorktree': '正在將會話移至新工作樹',
@@ -1278,6 +1292,9 @@ export const dict: Record<I18nKey, string> = {
   'magicPrompts.toast.loadFailed': '無法載入魔法提示詞。未傳送任何內容。',
   'gitView.empty.notGitRepository': '目前目錄不是 Git 儲存庫',
   'gitView.empty.notGitRepositoryDescription': '請在此目錄初始化 Git，或開啟一個 Git 儲存庫。',
+  'gitView.empty.repositoryUnreadable': 'Git 無法讀取此資料夾',
+  'gitView.empty.repositoryUnreadableDescription': '以下是 Git 的輸出。解決問題後重試。',
+  'gitView.empty.repositoryUnreadableRetry': '重試',
   'gitView.empty.selectSessionOrDirectory': '請選擇會话或目錄以查看 Git 狀態',
   'gitView.empty.worktreeFeaturesUnavailable': '目前工作區模式下，worktree 功能無法使用。',
   'gitView.empty.worktreeSetupDescription': '正在完成 worktree 設定並準備儲存庫狀態。',
@@ -1832,6 +1849,7 @@ export const dict: Record<I18nKey, string> = {
   'contextSidebar.empty.openSession': '請先開啟會話以查看上下文。',
   'contextSidebar.section.context': '上下文',
   'contextSidebar.section.lastAssistantMessage': '最近一條助理訊息',
+  'contextSidebar.section.sessionTotals': '會話總計',
   'contextSidebar.section.rawMessages': '原始訊息',
   'contextSidebar.context.percentUsed': '已使用 {percent}%',
   'contextSidebar.breakdown.user': '使用者',
@@ -2031,8 +2049,6 @@ export const dict: Record<I18nKey, string> = {
   'rightSidebar.contextNotesTodo.todo.addAria': '新增待辦',
   'rightSidebar.contextNotesTodo.todo.empty': '還沒有待辦。為此專案新增一個簡短清單吧。',
   'rightSidebar.contextNotesTodo.todo.actions.markComplete': '將「{text}」標記為已完成',
-  'rightSidebar.contextNotesTodo.todo.actions.collapse': '摺疊待辦「{text}」',
-  'rightSidebar.contextNotesTodo.todo.actions.expand': '展開待辦「{text}」',
   'rightSidebar.contextNotesTodo.todo.actions.send': '傳送「{text}」',
   'rightSidebar.contextNotesTodo.todo.actions.reorder': '重新排序「{text}」',
   'rightSidebar.contextNotesTodo.todo.sendMenu.currentSession': '傳送到目前會話',
@@ -2224,6 +2240,7 @@ export const dict: Record<I18nKey, string> = {
   'directoryExplorerDialog.browse.retry': '再試一次',
   'directoryExplorerDialog.browse.parentDirectory': '上層目錄',
   'directoryExplorerDialog.browse.addedBadge': '已新增',
+  'directoryExplorerDialog.browse.linkTarget': '連結至 {path}',
   'directoryExplorerDialog.browse.quickAdd': '添加',
   'directoryExplorerDialog.browse.selectForAdd': '選取以新增',
   'directoryExplorerDialog.footer.navigate': '導覽',
@@ -2380,6 +2397,7 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIntegration.validation.failed': '驗證失敗',
   'chat.fileAttachment.toast.attachFailed': '附加檔案失敗',
   'chat.fileAttachment.toast.tooLarge': '{name} 過大，無法附加（超過 {size}）。如果它在專案中，請用 @ 提及。',
+  'chat.fileAttachment.toast.heicConversionFailed': '{name} 無法從 HEIC 轉換為 JPEG，因此未附加。請將照片儲存為 JPEG 後再試一次。',
   'chat.fileAttachment.toast.overSendLimit': '{name} 過大，無法附加（超過 {size}）。',
   'chat.fileAttachment.toast.someFilesSkipped': '以下檔案被跳過：\n{summary}',
   'chat.fileAttachment.toast.vscodePickFailed': '在 VS Code 中選擇檔案失敗',
@@ -2543,6 +2561,8 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.group.empty.loadingSessions': '正在載入工作階段…',
   'sessions.sidebar.group.empty.loadFailed': '無法重新整理工作階段。',
   'sessions.sidebar.group.empty.initializationFailed': '無法初始化工作區。',
+  'sessions.sidebar.group.empty.trustPaused': '在你信任此資料夾之前，代理處於暫停狀態。',
+  'sessions.sidebar.group.empty.reviewTrust': '檢視並信任',
   'sessions.search.submitHint': '按 Enter 鍵搜尋',
   'sessions.sidebar.group.empty.retry': '再試一次',
   'sessions.sidebar.group.empty.permissionDenied': '需要資料夾存取權限。',
@@ -3408,6 +3428,7 @@ export const dict: Record<I18nKey, string> = {
   'updateDialog.status.autoReloadHint': '更新完成後頁面將自動重新載入。',
   'updateDialog.fallback.updateViaTerminal': '或透過終端機更新：',
   'updateDialog.desktopHostInstall': 'OpenChamber {version} 已可用。請在執行它的電腦上更新。',
+  'updateDialog.openCodeTooOld': 'OpenChamber {version} 需要 OpenCode {required}。此伺服器為 {current}。請先更新 OpenCode。',
   'updateDialog.actions.copyCommand': '複製命令',
   'updateDialog.actions.copied': '已複製！',
   'updateDialog.status.downloadingPayload': '正在下載更新包...',
@@ -3706,6 +3727,9 @@ export const dict: Record<I18nKey, string> = {
   'chat.workStatus.breakdown.skillCountPlural': '{count} 個技能',
   'chat.workStatus.breakdown.mcpCountSingle': '{count} 個 MCP',
   'chat.workStatus.breakdown.mcpCountPlural': '{count} 個 MCP',
+  'chat.workStatus.breakdown.planCountSingle': '{count} 個計畫',
+  'chat.workStatus.breakdown.planCountPlural': '{count} 個計畫',
+  'chat.workStatus.linkedPlans.open': '開啟計畫 {title}',
   'chat.workStatus.sections.open': '選擇區塊',
   'chat.workStatus.sections.dialogTitle': '面板區塊',
   'chat.workStatus.sections.reorder': '拖曳 {label} 以重新排序',
@@ -3970,6 +3994,8 @@ export const dict: Record<I18nKey, string> = {
   'sessions.moveSession.failed': '無法移動工作階段',
   'chat.folderMissing.text': '資料夾 {name} 已不存在',
   'chat.folderMissing.action': '移動工作階段',
+  'chat.trustPaused.text': '在你信任 {name} 的外掛與命令之前，代理無法在其中工作。',
+  'chat.trustPaused.action': '檢視並信任',
   'chat.worktreeSetup.running': '正在設定 worktree：正在執行專案的設定命令…',
   'chat.draft.creatingSession': '正在建立會話…',
   'desktopHostSwitcher.startup.fellBackToLocal': '未能建立連線，因此 OpenChamber 以 Local 啟動。待其可連線後，請在實例切換器中連線。',

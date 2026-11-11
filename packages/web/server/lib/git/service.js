@@ -286,23 +286,34 @@ const listWindowsGitInstallCandidates = () => {
   return candidates;
 };
 
-const resolveGitBinary = () => {
-  if (process.platform !== 'win32') {
-    return 'git';
-  }
-  if (resolvedGitBinary) {
-    return resolvedGitBinary;
-  }
-
+// GIT_BINARY or OPENCHAMBER_GIT_BINARY when it names an executable file, else null.
+const resolveExplicitGitBinary = () => {
   const explicit = [process.env.GIT_BINARY, process.env.OPENCHAMBER_GIT_BINARY]
     .map((value) => (typeof value === 'string' ? value.trim() : ''))
     .filter(Boolean);
   for (const candidate of explicit) {
     const normalized = normalizeGitExecutableCandidate(candidate);
     if (isExecutableFile(normalized)) {
-      resolvedGitBinary = normalized;
-      return resolvedGitBinary;
+      return normalized;
     }
+  }
+  return null;
+};
+
+const resolveGitBinary = () => {
+  // Outside Windows there is no install-folder search to cache; the override
+  // costs one stat per call, and without it Git comes from PATH.
+  if (process.platform !== 'win32') {
+    return resolveExplicitGitBinary() || 'git';
+  }
+  if (resolvedGitBinary) {
+    return resolvedGitBinary;
+  }
+
+  const explicit = resolveExplicitGitBinary();
+  if (explicit) {
+    resolvedGitBinary = explicit;
+    return resolvedGitBinary;
   }
 
   const pathDiscovered = [
@@ -1220,6 +1231,9 @@ const runGitCommand = async (cwd, args, { env: envOverride, timeoutMs = 0 } = {}
       stdout: String(error?.stdout || ''),
       stderr: String(error?.stderr || ''),
       message: parseGitErrorText(error),
+      // Why Git gave no answer at all: killed by the timeout, or never started.
+      timedOut: error?.killed === true,
+      spawnFailed: error?.code === 'ENOENT' || error?.code === 'EACCES',
     };
   }
 };
@@ -2622,13 +2636,27 @@ const applyUpstreamConfiguration = async (args) => {
 
 const warnedUnsupportedRoots = new Set();
 
+// What the user reads when Git could not tell whether a directory is a
+// repository: Git's own words (a refused `safe.directory` names the command
+// that fixes it), else why there were none.
+const probeFailureMessage = (result) => {
+  if (result.timedOut) return `Git did not answer within ${GIT_PROBE_TIMEOUT_MS / 1000} seconds.`;
+  if (result.spawnFailed) return `Git could not be started: ${result.message}`;
+  return result.stderr.trim() || result.message || 'Git could not read this directory.';
+};
+
 // Whether `directoryPath` is in a supported repository, and where its working
 // tree starts. One process answers both: in the desktop app every Git process
 // is forked from the Electron main process, and a status read asks this first.
 // `repoRoot` is null inside a bare repository or a .git directory, where Git
 // prints the git dir and then fails on `--show-toplevel`; those still count
 // as repositories.
-const probeRepository = async (directoryPath, { strict = false } = {}) => {
+//
+// `failOnGitError`: a Git that could not answer (not spawnable, a refused
+// `safe.directory`, a timeout) throws a `GIT_REPOSITORY_UNREADABLE` error with
+// Git's own message instead of reading as "not a repository". A missing
+// directory still reads as one. `strict` adds a throw for that too.
+const probeRepository = async (directoryPath, { strict = false, failOnGitError = strict } = {}) => {
   const notRepository = { isRepository: false, repoRoot: null };
   if (!directoryPath || !fs.existsSync(directoryPath)) {
     if (strict) throw new Error('Project directory does not exist or is inaccessible');
@@ -2636,16 +2664,17 @@ const probeRepository = async (directoryPath, { strict = false } = {}) => {
   }
 
   const options = { timeoutMs: GIT_PROBE_TIMEOUT_MS };
-  if (strict) options.env = { ...await buildGitEnv(directoryPath), LC_ALL: 'C' };
+  // English messages, so "not a git repository" is recognised whatever the locale.
+  if (failOnGitError) options.env = { ...await buildGitEnv(directoryPath), LC_ALL: 'C' };
   const result = await runGitCommand(directoryPath, ['rev-parse', '--git-dir', '--show-toplevel'], options);
   const [gitDir = '', topLevel = ''] = result.stdout.split(/\r?\n/).map((line) => line.trim());
-  if (strict && !result.success) {
+  if (failOnGitError && !result.success) {
     if (result.exitCode === 128 && !gitDir && /^fatal: not a git repository \(or any (?:of the parent directories\):|parent up to mount point [^\r\n]+\))/i.test(result.stderr.trim())) {
       return notRepository;
     }
     // Bare repositories and .git directories have a git dir but no work tree.
     if (!(gitDir && result.exitCode === 128 && /must be run in a work tree/i.test(result.stderr))) {
-      throw new Error(result.message || 'Failed to probe Git repository');
+      throw Object.assign(new Error(probeFailureMessage(result)), { code: 'GIT_REPOSITORY_UNREADABLE' });
     }
   }
   if (!gitDir) return notRepository;
@@ -5231,6 +5260,21 @@ export async function setWorktreePinned(directory, pinned, list = null, now = Da
     void publishWorktreeTopologyChange(directoryPath);
   }
   return { pinned, branch };
+}
+
+/**
+ * Whether `directory` is inside a linked worktree whose task the user pinned.
+ * The project's own checkout is never a pinned work, whatever its branch's
+ * config says. Any git failure reads as not pinned.
+ */
+export async function isWorktreeDirectoryPinned(directory) {
+  const directoryPath = normalizeDirectoryPath(directory);
+  if (!directoryPath || !fs.existsSync(directoryPath)) return false;
+  const result = await runGitCommand(directoryPath, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--abbrev-ref', 'HEAD']);
+  if (!result.success) return false;
+  const [gitDir, commonDir, branch] = String(result.stdout || '').split(/\r?\n/);
+  if (!gitDir || !commonDir || gitDir === commonDir || !branch || branch === 'HEAD') return false;
+  return parseBranchPin(await readGitConfigValue(directoryPath, `branch.${branch}.openchamberPinned`)) !== null;
 }
 
 const readGitConfigValue = async (directory, key) => {

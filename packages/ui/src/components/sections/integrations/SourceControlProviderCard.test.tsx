@@ -182,7 +182,10 @@ describe('SourceControlProviderCard', () => {
   const apis: RuntimeAPIs = {
     runtime: { platform: 'web', isVSCode: false, isDesktop: false }, sourceControl,
     get git() { return unexpected(); }, get terminal() { return unexpected(); },
-    get files() { return unexpected(); }, get settings() { return unexpected(); },
+    get files() { return unexpected(); },
+    // The directory store loads with Settings and may persist the home folder it
+    // resolves; that write is not part of the card under test.
+    settings: { load: unexpected, save: async (changes) => ({ ...changes }) },
     get permissions() { return unexpected(); }, get notifications() { return unexpected(); },
   };
 
@@ -197,7 +200,7 @@ describe('SourceControlProviderCard', () => {
   beforeEach(() => {
     dom = new Window({ url: 'http://localhost/' });
     const values = {
-      window: dom, document: dom.document, navigator: dom.navigator,
+      window: dom, document: dom.document, navigator: dom.navigator, localStorage: dom.localStorage,
       HTMLElement: dom.HTMLElement, Element: dom.Element, Node: dom.Node,
       HTMLInputElement: dom.HTMLInputElement, DocumentFragment: dom.DocumentFragment,
       MutationObserver: dom.MutationObserver, ResizeObserver: dom.ResizeObserver,
@@ -295,6 +298,28 @@ describe('SourceControlProviderCard', () => {
   };
 
   const passwordInput = () => container.querySelector<HTMLInputElement>('input[type="password"]');
+
+  test('a login-only card shows the service hint or user, with no token or account-switch controls', async () => {
+    const hint = 'Run forge auth login on the OpenChamber server';
+    const descriptor = acmeDescriptor({
+      instances: { ...acme.instances, defaultInstance: 'https://forge.example.com', multiple: false },
+      auth: { methods: ['cli'], cliTransport: false, login: { kind: 'service', hint } },
+      settings: { fields: [{ id: 'instance', kind: 'instance-url', secret: false }] },
+    });
+    withCliLogin = false;
+    await mount(descriptor);
+    expect(container.textContent).toContain(hint);
+    expect(passwordInput()).toBeNull();
+    await act(async () => { root?.unmount(); });
+    withCliLogin = true;
+    savedInstances.add('https://forge.example.com');
+    await mount(descriptor);
+    expect(container.textContent).toContain('cli-user');
+    expect(container.textContent).not.toContain(hint);
+    expect(passwordInput()).toBeNull();
+    expect(buttonLabels()).not.toContain('Add account');
+    expect(buttonLabels().some((label) => label?.includes('CLI'))).toBe(false);
+  });
 
   test('names the provider by its label and draws its served mark', async () => {
     await mount(acme);

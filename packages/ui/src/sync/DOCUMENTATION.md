@@ -501,7 +501,10 @@ pick is pending, it and its effort win over external switches. Otherwise the
 session record can switch to another model and effort. The store also
 persists, per session, the session-record agent and model the composer last
 followed; a different record value is a newer switch and replaces the saved selection
-(Auto excepted), while an unchanged one keeps an unsent pick
+(Auto excepted). A saved model that disagrees with the record is replaced even
+without a followed baseline when no pick is unsent in this app session: a
+device's persisted selection can come from another client's older switch, while
+the record is what the session runs. An unchanged record keeps an unsent pick
 (`packages/ui/src/stores/DOCUMENTATION.md`).
 
 Extension prompts sent into an existing session use its current composer selection

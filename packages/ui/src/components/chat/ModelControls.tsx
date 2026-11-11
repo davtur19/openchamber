@@ -1080,8 +1080,20 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         const recordModelKey = sessionRecordChoice && latestLoadedUserChoice === sessionRecordChoice
             ? `${sessionRecordChoice.providerID}/${sessionRecordChoice.modelID}#${sessionRecordChoice.variant ?? ''}`
             : null;
-        const recordModelSwitched = recordModelKey !== null
-            && useSelectionStore.getState().isSessionModelSwitched(currentSessionId, recordModelKey);
+        // A saved selection records the last pick; it does not prove the pick
+        // was made on this device. Another client's switch leaves this device's
+        // saved model stale, and a reload keeps it. With no unsent pick here, a
+        // saved model that disagrees with the record is a leftover: the record
+        // — what the session actually runs — wins.
+        const savedSessionModel = getSessionModelSelection(currentSessionId);
+        const unsentModelPick = useSelectionStore.getState().getSessionModelPick(currentSessionId);
+        const savedDisagreesWithRecord = Boolean(savedSessionModel && sessionRecordChoice
+            && (savedSessionModel.providerId !== sessionRecordChoice.providerID
+                || savedSessionModel.modelId !== sessionRecordChoice.modelID));
+        const recordModelSwitched = recordModelKey !== null && (
+            useSelectionStore.getState().isSessionModelSwitched(currentSessionId, recordModelKey)
+            || (!unsentModelPick && savedDisagreesWithRecord)
+        );
         const markRecordModelFollowed = () => {
             if (recordModelKey) useSelectionStore.getState().markSessionModelFollowed(currentSessionId, recordModelKey);
         };
@@ -1091,7 +1103,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         // newer truth, so it wins over the model the last turn actually ran on.
         // Until the routing state has loaded, Auto cannot be applied yet, so
         // the restore stays pending instead of letting history overwrite it.
-        const savedSessionModel = getSessionModelSelection(currentSessionId);
         const savedAuto = Boolean(savedSessionModel) && isAutoModel(savedSessionModel!.providerId, savedSessionModel!.modelId);
         if (savedAuto && isStaleAutoSelection(savedSessionModel!.providerId, savedSessionModel!.modelId)) {
             // Auto saved under a server that could route; this one cannot.
@@ -1210,6 +1221,35 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const savedAgentName = currentSessionId
                 ? useSelectionStore.getState().getSessionAgentSelection(currentSessionId)
                 : null;
+            // A persisted selection records the last pick for this device; it
+            // is not proof the pick was made here. A model saved for the agent
+            // can be as stale as the session-wide one after a switch made
+            // elsewhere, so unless an unsent pick covers it, the record — what
+            // the session actually runs — wins.
+            const unsentModelPick = useSelectionStore.getState().getSessionModelPick(currentSessionId);
+            const savedAgentModel = savedAgentName
+                ? getAgentModelForSession(currentSessionId, savedAgentName)
+                : null;
+            const localModel = savedAgentModel ?? savedSessionModel;
+            const recordProviderID = sessionRecordChoice?.providerID;
+            const recordModelID = sessionRecordChoice?.modelID;
+            if (recordProviderID && recordModelID && localModel && !unsentModelPick
+                && !isAutoModel(localModel.providerId, localModel.modelId)
+                && (localModel.providerId !== recordProviderID
+                    || localModel.modelId !== recordModelID)) {
+                const result = tryApplyModelSelection(
+                    recordProviderID,
+                    recordModelID,
+                    savedAgentName ?? undefined,
+                );
+                if (result === 'applied') {
+                    saveSessionModelSelection(currentSessionId, recordProviderID, recordModelID);
+                    return 'resolved';
+                }
+                if (result === 'provider-missing') {
+                    return 'waiting';
+                }
+            }
             if (savedAgentName) {
                 const savedModel = getAgentModelForSession(currentSessionId, savedAgentName);
                 if (savedModel) {

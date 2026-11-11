@@ -32,6 +32,7 @@ type UserModelChoice = {
 
 const PROVIDER_ID = 'openai';
 const MODEL_ID = 'gpt-5.5';
+const OTHER_MODEL_ID = 'gpt-5.4';
 const AGENT = 'build';
 const SESSION_ID = 'ses_restore';
 
@@ -41,7 +42,13 @@ const model = {
   providerID: PROVIDER_ID,
   variants: { low: {}, high: {} },
 };
-const provider = { id: PROVIDER_ID, name: PROVIDER_ID, models: [model] };
+const otherModel = {
+  id: OTHER_MODEL_ID,
+  name: OTHER_MODEL_ID,
+  providerID: PROVIDER_ID,
+  variants: { low: {}, high: {} },
+};
+const provider = { id: PROVIDER_ID, name: PROVIDER_ID, models: [model, otherModel] };
 const agent = { id: AGENT, name: AGENT, displayName: 'Build', mode: 'primary' as const, hidden: false, request: { settings: {}, headers: {}, body: {} }, permissions: [] };
 /** v2 pins an agent's model, and its effort, in one model reference. */
 type TestAgent = typeof agent & { model?: { providerID: string; id: string; variant?: string } };
@@ -49,6 +56,12 @@ const planAgent: TestAgent = { ...agent, id: 'plan', name: 'plan', displayName: 
 const reviewAgent: TestAgent = { ...agent, id: 'review', name: 'review', displayName: 'Review' };
 
 let latestUserChoice: UserModelChoice | null = null;
+/** What this device saved for the session; a test overrides it to look stale. */
+let savedSessionModel: { providerId: string; modelId: string } | null = { providerId: PROVIDER_ID, modelId: MODEL_ID };
+/** What this device saved for the session's agent. */
+let savedAgentModel: { providerId: string; modelId: string } | null = { providerId: PROVIDER_ID, modelId: MODEL_ID };
+/** A model picked in this app session and not sent yet. */
+let unsentModelPick: { providerId: string; modelId: string } | null = null;
 /** Catalogs of folders other than the active one, keyed by folder. */
 /** A test variant carries no settings. */
 type EmptyVariant = { readonly settings?: never };
@@ -173,6 +186,7 @@ type SelectionState = {
   sessionFollowedAgents: Map<string, string>;
   sessionFollowedModels: Map<string, string>;
   getSessionModelSelection: () => { providerId: string; modelId: string } | null;
+  getSessionModelPick: (sessionId: string) => { providerId: string; modelId: string } | null;
   getSessionAgentSelection: (sessionId: string) => string | null;
   followSessionAgent: (sessionId: string, agent: string) => boolean;
   isSessionModelSwitched: (sessionId: string, model: string) => boolean;
@@ -198,7 +212,8 @@ const useSelectionStore = create<SelectionState>((set, get) => ({
   sessionAgentSelections: new Map([[SESSION_ID, AGENT]]),
   sessionFollowedAgents: new Map(),
   sessionFollowedModels: new Map(),
-  getSessionModelSelection: () => ({ providerId: PROVIDER_ID, modelId: MODEL_ID }),
+  getSessionModelSelection: () => savedSessionModel,
+  getSessionModelPick: () => unsentModelPick,
   getSessionAgentSelection: (sessionId) => get().sessionAgentSelections.get(sessionId) ?? null,
   // The real transition: only a record agent not followed yet moves the pick.
   followSessionAgent: (sessionId, agentName) => {
@@ -216,7 +231,7 @@ const useSelectionStore = create<SelectionState>((set, get) => ({
   markSessionModelFollowed: (sessionId, modelKey) => set((state) => ({
     sessionFollowedModels: new Map(state.sessionFollowedModels).set(sessionId, modelKey),
   })),
-  getAgentModelForSession: () => ({ providerId: PROVIDER_ID, modelId: MODEL_ID }),
+  getAgentModelForSession: () => savedAgentModel,
   getAgentModelVariantForSession: () => get().savedVariant,
   saveSessionModelSelection: () => undefined,
   pickSessionModel: (sessionId, providerId, modelId) => { pendingModelWrites.push(`${sessionId}:${providerId}/${modelId}`); },
@@ -507,6 +522,9 @@ describe('ModelControls effort restore', () => {
     lastSelectedWrites.length = 0;
     pendingModelWrites.length = 0;
     latestUserChoice = null;
+    savedSessionModel = { providerId: PROVIDER_ID, modelId: MODEL_ID };
+    savedAgentModel = { providerId: PROVIDER_ID, modelId: MODEL_ID };
+    unsentModelPick = null;
     knownElsewhere = nothingKnownElsewhere();
     setSessionRecord(undefined);
     forcePreserveManualOverride = null;
@@ -629,6 +647,40 @@ describe('ModelControls effort restore', () => {
     try {
       expect(useSelectionStore.getState().savedVariant).toBe('high');
       expect(variantWrites).not.toContain('low');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('a saved model left by another client follows the session record', async () => {
+    // A device keeps its own copy of the last pick. A switch made elsewhere
+    // leaves that copy stale; the record says what the session runs, so the
+    // composer must not keep showing (and sending) the old model.
+    savedSessionModel = { providerId: PROVIDER_ID, modelId: OTHER_MODEL_ID };
+    savedAgentModel = { providerId: PROVIDER_ID, modelId: OTHER_MODEL_ID };
+    setSessionRecord({ id: SESSION_ID, agent: AGENT, model: { providerID: PROVIDER_ID, id: MODEL_ID } });
+    latestUserChoice = null;
+    useConfigStore.setState({ selectionSource: 'manual', currentModelId: OTHER_MODEL_ID });
+
+    const { cleanup } = await renderModelControls();
+    try {
+      expect(useConfigStore.getState().currentModelId).toBe(MODEL_ID);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('a model picked in this app session stays over the record', async () => {
+    savedSessionModel = { providerId: PROVIDER_ID, modelId: OTHER_MODEL_ID };
+    savedAgentModel = { providerId: PROVIDER_ID, modelId: OTHER_MODEL_ID };
+    unsentModelPick = { providerId: PROVIDER_ID, modelId: OTHER_MODEL_ID };
+    setSessionRecord({ id: SESSION_ID, agent: AGENT, model: { providerID: PROVIDER_ID, id: MODEL_ID } });
+    latestUserChoice = null;
+    useConfigStore.setState({ selectionSource: 'manual', currentModelId: OTHER_MODEL_ID });
+
+    const { cleanup } = await renderModelControls();
+    try {
+      expect(useConfigStore.getState().currentModelId).toBe(OTHER_MODEL_ID);
     } finally {
       await cleanup();
     }
@@ -1368,6 +1420,7 @@ describe('ModelControls effort restore', () => {
     test('a model switch made elsewhere wins over a model picked here, an unchanged record does not', async () => {
       withModels();
       // The picker holds a model the session has not been sent with yet.
+      unsentModelPick = { providerId: PROVIDER_ID, modelId: MODEL_ID };
       useConfigStore.setState({ selectionSource: 'manual' });
       setSessionRecord(recordWith(OTHER_MODEL_ID));
       const { cleanup } = await renderModelControls();
